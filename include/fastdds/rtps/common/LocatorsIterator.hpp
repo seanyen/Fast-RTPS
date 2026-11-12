@@ -16,10 +16,10 @@
  * @file LocatorsIterator.hpp
  */
 
-#ifndef _FASTDDS_RTPS_COMMON_LOCATORSITERATOR_HPP_
-#define _FASTDDS_RTPS_COMMON_LOCATORSITERATOR_HPP_
+#ifndef FASTDDS_RTPS_COMMON__LOCATORSITERATOR_HPP
+#define FASTDDS_RTPS_COMMON__LOCATORSITERATOR_HPP
 
-#include <fastdds/rtps/common/Locator.h>
+#include <fastdds/rtps/common/Locator.hpp>
 
 namespace eprosima {
 namespace fastdds {
@@ -31,16 +31,42 @@ namespace rtps {
  */
 struct LocatorsIterator
 {
+    /**
+     * @brief Increment operator.
+     *
+     * @return LocatorsIterator& reference to the next LocatorsIterator.
+     */
     virtual LocatorsIterator& operator ++() = 0;
+    /**
+     * @brief Equal to operator.
+     *
+     * @param other LocatorsIterator to compare.
+     * @return true if equal.
+     * @return false otherwise.
+     */
     virtual bool operator ==(
             const LocatorsIterator& other) const = 0;
+    /**
+     * @brief Not equal to operator.
+     *
+     * @param other LocatorsIterator to compare.
+     * @return true if not equal.
+     * @return false otherwise.
+     */
     virtual bool operator !=(
             const LocatorsIterator& other) const = 0;
+    /**
+     * @brief Dereference operator.
+     *
+     * @return const Locator& Reference to the locator pointed by the LocatorsIterator.
+     */
     virtual const Locator& operator *() const = 0;
 };
+
+using LocatorsIterator = eprosima::fastdds::rtps::LocatorsIterator;
 
 } // namespace rtps
 } // namespace fastdds
 } // namespace eprosima
 
-#endif /* _FASTDDS_RTPS_COMMON_LOCATORSITERATOR_HPP_ */
+#endif // FASTDDS_RTPS_COMMON__LOCATORSITERATOR_HPP

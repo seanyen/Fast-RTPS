@@ -12,18 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef _FASTDDS_PARTICIPANTIMPL_HPP_
-#define _FASTDDS_PARTICIPANTIMPL_HPP_
+#ifndef FASTDDS_DOMAIN__DOMAINPARTICIPANTIMPL_HPP
+#define FASTDDS_DOMAIN__DOMAINPARTICIPANTIMPL_HPP
 
+#include <atomic>
 #include <map>
 #include <mutex>
 #include <string>
 #include <vector>
 
 #include <gmock/gmock.h>
-#include <fastdds/dds/builtin/typelookup/TypeLookupManager.hpp>
+
+#include <fastdds/dds/core/ReturnCode.hpp>
 #include <fastdds/dds/core/status/StatusMask.hpp>
 #include <fastdds/dds/domain/qos/DomainParticipantQos.hpp>
+#include <fastdds/dds/domain/qos/ReplierQos.hpp>
+#include <fastdds/dds/domain/qos/RequesterQos.hpp>
 #include <fastdds/dds/publisher/Publisher.hpp>
 #include <fastdds/dds/publisher/qos/PublisherQos.hpp>
 #include <fastdds/dds/subscriber/qos/SubscriberQos.hpp>
@@ -31,21 +35,26 @@
 #include <fastdds/dds/topic/qos/TopicQos.hpp>
 #include <fastdds/dds/topic/Topic.hpp>
 #include <fastdds/dds/topic/TypeSupport.hpp>
-#include <fastdds/rtps/common/Guid.h>
-#include <fastdds/rtps/common/Types.h>
-#include <fastdds/rtps/RTPSDomain.h>
-#include <fastdds/rtps/participant/RTPSParticipant.h>
-#include <fastdds/rtps/participant/RTPSParticipantListener.h>
-#include <fastdds/rtps/resources/ResourceEvent.h>
-#include <fastrtps/attributes/TopicAttributes.h>
-#include <fastrtps/types/TypesBase.h>
-#include <fastrtps/xmlparser/XMLProfileManager.h>
-
 #include <fastdds/publisher/PublisherImpl.hpp>
+#include <fastdds/rtps/common/Guid.hpp>
+#include <fastdds/rtps/common/InstanceHandle.hpp>
+#include <fastdds/rtps/common/Types.hpp>
+#include <fastdds/rtps/participant/RTPSParticipant.hpp>
+#include <fastdds/rtps/participant/RTPSParticipantListener.hpp>
+#include <fastdds/rtps/RTPSDomain.hpp>
 #include <fastdds/subscriber/SubscriberImpl.hpp>
 #include <fastdds/topic/TopicImpl.hpp>
+#include <fastdds/topic/TopicProxy.hpp>
+#include <fastdds/dds/rpc/ServiceTypeSupport.hpp>
+#include <fastdds/dds/rpc/Service.hpp>
+#include <fastdds/dds/rpc/Requester.hpp>
+#include <fastdds/dds/rpc/Replier.hpp>
+#include <fastdds/dds/domain/qos/RequesterQos.hpp>
+#include <fastdds/dds/domain/qos/ReplierQos.hpp>
 
-using ReturnCode_t = eprosima::fastrtps::types::ReturnCode_t;
+#include <fastdds/builtin/type_lookup_service/TypeLookupManager.hpp>
+#include <rtps/resources/ResourceEvent.h>
+#include <xmlparser/XMLProfileManager.h>
 
 namespace eprosima {
 namespace fastdds {
@@ -76,13 +85,15 @@ protected:
         , default_pub_qos_(PUBLISHER_QOS_DEFAULT)
         , default_sub_qos_(SUBSCRIBER_QOS_DEFAULT)
         , default_topic_qos_(TOPIC_QOS_DEFAULT)
+        , id_counter_(0)
 #pragma warning (disable : 4355)
         , rtps_listener_(this)
     {
         participant_->impl_ = this;
 
-        eprosima::fastrtps::TopicAttributes top_attr;
-        eprosima::fastrtps::xmlparser::XMLProfileManager::getDefaultTopicAttributes(top_attr);
+        guid_.guidPrefix.value[11] = 1;
+        eprosima::fastdds::xmlparser::TopicAttributes top_attr;
+        eprosima::fastdds::xmlparser::XMLProfileManager::getDefaultTopicAttributes(top_attr);
         default_topic_qos_.history() = top_attr.historyQos;
         default_topic_qos_.resource_limits() = top_attr.resourceLimitsQos;
     }
@@ -91,7 +102,14 @@ protected:
     {
         if (rtps_participant_ != nullptr)
         {
-            eprosima::fastrtps::rtps::RTPSDomain::removeRTPSParticipant(rtps_participant_);
+            eprosima::fastdds::rtps::RTPSDomain::removeRTPSParticipant(rtps_participant_);
+        }
+
+        if (participant_)
+        {
+            participant_->impl_ = nullptr;
+            delete participant_;
+            participant_ = nullptr;
         }
     }
 
@@ -101,18 +119,18 @@ public:
 
     virtual ReturnCode_t enable()
     {
-        fastrtps::rtps::RTPSParticipantAttributes rtps_attr;
+        fastdds::rtps::RTPSParticipantAttributes rtps_attr;
 
-        rtps_participant_ = eprosima::fastrtps::rtps::RTPSDomain::createParticipant(
+        rtps_participant_ = eprosima::fastdds::rtps::RTPSDomain::createParticipant(
             domain_id_, false, rtps_attr, &rtps_listener_);
 
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
     ReturnCode_t get_qos(
             DomainParticipantQos& /*qos*/) const
     {
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
     const DomainParticipantQos& get_qos() const
@@ -123,18 +141,36 @@ public:
     ReturnCode_t set_qos(
             const DomainParticipantQos& /*qos*/)
     {
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
     ReturnCode_t set_listener(
             DomainParticipantListener* /*listener*/)
     {
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t set_listener(
+            DomainParticipantListener* /*listener*/,
+            const std::chrono::seconds /*timeout*/)
+    {
+        return RETCODE_OK;
     }
 
     const DomainParticipantListener* get_listener() const
     {
         return listener_;
+    }
+
+    Publisher* create_publisher(
+            const PublisherQos& qos,
+            ReturnCode_t& ret_code,
+            PublisherListener* listener,
+            const StatusMask& mask)
+    {
+        Publisher* pub = create_publisher(qos, listener, mask);
+        ret_code = (pub != nullptr) ? RETCODE_OK : RETCODE_ERROR;
+        return pub;
     }
 
     Publisher* create_publisher(
@@ -168,6 +204,17 @@ public:
     }
 
     Publisher* create_publisher_with_profile(
+            const std::string& profile_name,
+            ReturnCode_t& ret_code,
+            PublisherListener* listener,
+            const StatusMask& mask)
+    {
+        Publisher* pub = create_publisher_with_profile(profile_name, listener, mask);
+        ret_code = (pub != nullptr) ? RETCODE_OK : RETCODE_ERROR;
+        return pub;
+    }
+
+    Publisher* create_publisher_with_profile(
             const std::string& /*profile_name*/,
             PublisherListener* listener,
             const StatusMask& mask)
@@ -180,7 +227,7 @@ public:
     {
         if (participant_ != pub->get_participant())
         {
-            return ReturnCode_t::RETCODE_PRECONDITION_NOT_MET;
+            return RETCODE_PRECONDITION_NOT_MET;
         }
         std::lock_guard<std::mutex> lock(mtx_pubs_);
         auto pit = publishers_.find(const_cast<Publisher*>(pub));
@@ -188,13 +235,24 @@ public:
         {
             if (pub->has_datawriters())
             {
-                return ReturnCode_t::RETCODE_PRECONDITION_NOT_MET;
+                return RETCODE_PRECONDITION_NOT_MET;
             }
             delete pit->second;
             publishers_.erase(pit);
-            return ReturnCode_t::RETCODE_OK;
+            return RETCODE_OK;
         }
-        return ReturnCode_t::RETCODE_ERROR;
+        return RETCODE_ERROR;
+    }
+
+    Subscriber* create_subscriber(
+            const SubscriberQos& qos,
+            ReturnCode_t& ret_code,
+            SubscriberListener* listener = nullptr,
+            const StatusMask& mask = StatusMask::all())
+    {
+        Subscriber* sub = create_subscriber(qos, listener, mask);
+        ret_code = (sub != nullptr) ? RETCODE_OK : RETCODE_ERROR;
+        return sub;
     }
 
     Subscriber* create_subscriber(
@@ -213,6 +271,17 @@ public:
     }
 
     Subscriber* create_subscriber_with_profile(
+            const std::string& profile_name,
+            ReturnCode_t& ret_code,
+            SubscriberListener* listener = nullptr,
+            const StatusMask& mask = StatusMask::all())
+    {
+        Subscriber* sub = create_subscriber_with_profile(profile_name, listener, mask);
+        ret_code = (sub != nullptr) ? RETCODE_OK : RETCODE_ERROR;
+        return sub;
+    }
+
+    Subscriber* create_subscriber_with_profile(
             const std::string& /*profile_name*/,
             SubscriberListener* listener,
             const StatusMask& mask)
@@ -225,7 +294,7 @@ public:
     {
         if (participant_ != sub->get_participant())
         {
-            return ReturnCode_t::RETCODE_PRECONDITION_NOT_MET;
+            return RETCODE_PRECONDITION_NOT_MET;
         }
         std::lock_guard<std::mutex> lock(mtx_subs_);
         auto sit = subscribers_.find(const_cast<Subscriber*>(sub));
@@ -233,13 +302,26 @@ public:
         {
             if (sub->has_datareaders())
             {
-                return ReturnCode_t::RETCODE_PRECONDITION_NOT_MET;
+                return RETCODE_PRECONDITION_NOT_MET;
             }
             delete sit->second;
             subscribers_.erase(sit);
-            return ReturnCode_t::RETCODE_OK;
+            return RETCODE_OK;
         }
-        return ReturnCode_t::RETCODE_ERROR;
+        return RETCODE_ERROR;
+    }
+
+    Topic* create_topic(
+            const std::string& topic_name,
+            const std::string& type_name,
+            const TopicQos& qos,
+            ReturnCode_t& ret_code,
+            TopicListener* listener = nullptr,
+            const StatusMask& mask = StatusMask::all())
+    {
+        Topic* topic = create_topic(topic_name, type_name, qos, listener, mask);
+        ret_code = (topic != nullptr) ? RETCODE_OK : RETCODE_ERROR;
+        return topic;
     }
 
     Topic* create_topic(
@@ -254,7 +336,7 @@ public:
         {
             return nullptr;
         }
-        if (!TopicImpl::check_qos(qos))
+        if (RETCODE_OK != TopicImpl::check_qos(qos))
         {
             return nullptr;
         }
@@ -263,11 +345,25 @@ public:
         {
             return nullptr;
         }
-        TopicImpl* topic_impl = new TopicImpl(this, type_support, qos, listener);
-        Topic* topic = new Topic(topic_name, type_name, topic_impl, mask);
-        topic_impl->user_topic_ = topic;
-        topics_[topic_name] = topic_impl;
+        TopicImpl* topic_impl = new TopicImpl(nullptr, this, type_support, qos, listener);
+        TopicProxy* proxy = new TopicProxy(topic_name, type_name, mask, topic_impl);
+        Topic* topic = proxy->get_topic();
+        topics_[topic_name] = proxy;
+        topics_impl_[topic_name] = topic_impl;
         topic->enable();
+        return topic;
+    }
+
+    Topic* create_topic_with_profile(
+            const std::string& topic_name,
+            const std::string& type_name,
+            const std::string& profile_name,
+            ReturnCode_t& ret_code,
+            TopicListener* listener,
+            const StatusMask& mask)
+    {
+        Topic* topic = create_topic_with_profile(topic_name, type_name, profile_name, listener, mask);
+        ret_code = (topic != nullptr) ? RETCODE_OK : RETCODE_ERROR;
         return topic;
     }
 
@@ -281,35 +377,152 @@ public:
         return create_topic(topic_name, type_name, TOPIC_QOS_DEFAULT, listener, mask);
     }
 
+    Topic* find_topic(
+            const std::string& /*topic_name*/,
+            const fastdds::dds::Duration_t& /*timeout*/)
+    {
+        return nullptr;
+    }
+
+    void set_topic_listener(
+            const TopicProxyFactory* /*factory*/,
+            TopicImpl* /*impl*/,
+            TopicListener* /*listener*/,
+            const StatusMask& /*mask*/)
+    {
+    }
+
     ReturnCode_t delete_topic(
             const Topic* topic)
     {
+        auto topic_name = topic->get_name();
+
         if (delete_topic_mock())
         {
-            return ReturnCode_t::RETCODE_ERROR;
+            return RETCODE_ERROR;
         }
         if (nullptr == topic)
         {
-            return ReturnCode_t::RETCODE_BAD_PARAMETER;
+            return RETCODE_BAD_PARAMETER;
         }
         if (participant_ != topic->get_participant())
         {
-            return ReturnCode_t::RETCODE_PRECONDITION_NOT_MET;
+            return RETCODE_PRECONDITION_NOT_MET;
         }
+
         std::lock_guard<std::mutex> lock(mtx_topics_);
-        auto it = topics_.find(topic->get_name());
+        auto it = topics_.find(topic_name);
         if (it != topics_.end())
         {
             if (it->second->is_referenced())
             {
-                return ReturnCode_t::RETCODE_PRECONDITION_NOT_MET;
+                return RETCODE_PRECONDITION_NOT_MET;
             }
             delete it->second;
             topics_.erase(it);
-            return ReturnCode_t::RETCODE_OK;
+
+            // Destroy also impl, that must exist
+            delete topics_impl_[topic_name];
+            topics_impl_.erase(topic_name);
+
+            return RETCODE_OK;
         }
-        return ReturnCode_t::RETCODE_ERROR;
+        return RETCODE_ERROR;
     }
+
+    MOCK_METHOD6(create_contentfilteredtopic, ContentFilteredTopic * (
+                const std::string& name,
+                Topic * related_topic,
+                const std::string& filter_expression,
+                const std::vector<std::string>& expression_parameters,
+                const char* filter_class_name,
+                ReturnCode_t & ret_code));
+
+    MOCK_METHOD5(create_contentfilteredtopic, ContentFilteredTopic * (
+                const std::string& name,
+                Topic * related_topic,
+                const std::string& filter_expression,
+                const std::vector<std::string>& expression_parameters,
+                const char* filter_class_name));
+
+    MOCK_METHOD1(delete_contentfilteredtopic, ReturnCode_t(
+                const ContentFilteredTopic * topic));
+
+    MOCK_METHOD2(register_content_filter_factory, ReturnCode_t(
+                const char* filter_class_name,
+                IContentFilterFactory* const filter_factory));
+
+    MOCK_METHOD1(lookup_content_filter_factory, IContentFilterFactory * (
+                const char* filter_class_name));
+
+    MOCK_METHOD1(unregister_content_filter_factory, ReturnCode_t (
+                const char* filter_class_name));
+
+    MOCK_METHOD1(find_content_filter_factory, IContentFilterFactory * (
+                const char* filter_class_name));
+
+    MOCK_METHOD1(ignore_participant, bool (
+                const fastdds::rtps::InstanceHandle_t& handle));
+
+    MOCK_METHOD2(find_service_type, rpc::ServiceTypeSupport(
+                const std::string& service_name,
+                ReturnCode_t & ret_code));
+
+    MOCK_METHOD1(find_service_type, rpc::ServiceTypeSupport(
+                const std::string& service_name));
+
+    MOCK_METHOD2(register_service_type, ReturnCode_t(
+                rpc::ServiceTypeSupport service_type,
+                const std::string& service_type_name));
+
+    MOCK_METHOD1(unregister_service_type, ReturnCode_t(
+                const std::string& service_name));
+
+    MOCK_METHOD3(create_service, rpc::Service * (
+                const std::string& service_name,
+                const std::string& service_type_name,
+                ReturnCode_t & ret_code));
+
+    MOCK_METHOD2(create_service, rpc::Service * (
+                const std::string& service_name,
+                const std::string& service_type_name));
+
+    MOCK_METHOD2(find_service, rpc::Service * (
+                const std::string& service_name,
+                ReturnCode_t & ret_code));
+
+    MOCK_METHOD1(find_service, rpc::Service * (
+                const std::string& service_name));
+
+    MOCK_METHOD1(delete_service, ReturnCode_t(
+                const rpc::Service * service));
+
+    MOCK_METHOD3(create_service_requester, rpc::Requester * (
+                rpc::Service * service,
+                const RequesterQos& requester_qos,
+                ReturnCode_t & ret_code));
+
+    MOCK_METHOD2(create_service_requester, rpc::Requester * (
+                rpc::Service * service,
+                const RequesterQos& requester_qos));
+
+    MOCK_METHOD2(delete_service_requester, ReturnCode_t(
+                const std::string& service_name,
+                rpc::Requester * requester));
+
+    MOCK_METHOD3(create_service_replier, rpc::Replier * (
+                rpc::Service * service,
+                const ReplierQos& replier_qos,
+                ReturnCode_t & ret_code));
+
+    MOCK_METHOD2(create_service_replier, rpc::Replier * (
+                rpc::Service * service,
+                const ReplierQos& replier_qos));
+
+    MOCK_METHOD2(delete_service_replier, ReturnCode_t(
+                const std::string& service_name,
+                rpc::Replier * replier));
+
 
     TopicDescription* lookup_topicdescription(
             const std::string& topic_name) const
@@ -317,7 +530,7 @@ public:
         auto it = topics_.find(topic_name);
         if (it != topics_.end())
         {
-            return it->second->user_topic_;
+            return it->second->get_topic();
         }
         return nullptr;
     }
@@ -328,20 +541,20 @@ public:
     {
         if (type_name.size() <= 0)
         {
-            return ReturnCode_t::RETCODE_BAD_PARAMETER;
+            return RETCODE_BAD_PARAMETER;
         }
         TypeSupport t = find_type(type_name);
         if (!t.empty())
         {
             if (t == type)
             {
-                return ReturnCode_t::RETCODE_OK;
+                return RETCODE_OK;
             }
-            return ReturnCode_t::RETCODE_PRECONDITION_NOT_MET;
+            return RETCODE_PRECONDITION_NOT_MET;
         }
         std::lock_guard<std::mutex> lock(mtx_types_);
         types_.insert(std::make_pair(type_name, type));
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
     ReturnCode_t unregister_type(
@@ -349,12 +562,12 @@ public:
     {
         if (type_name.size() <= 0)
         {
-            return ReturnCode_t::RETCODE_BAD_PARAMETER;
+            return RETCODE_BAD_PARAMETER;
         }
         TypeSupport t = find_type(type_name);
         if (t.empty())
         {
-            return ReturnCode_t::RETCODE_OK;
+            return RETCODE_OK;
         }
         {
             std::lock_guard<std::mutex> lock(mtx_subs_);
@@ -362,7 +575,7 @@ public:
             {
                 if (sit.second->type_in_use(type_name))
                 {
-                    return ReturnCode_t::RETCODE_PRECONDITION_NOT_MET;
+                    return RETCODE_PRECONDITION_NOT_MET;
                 }
             }
         }
@@ -372,13 +585,13 @@ public:
             {
                 if (pit.second->type_in_use(type_name))
                 {
-                    return ReturnCode_t::RETCODE_PRECONDITION_NOT_MET;
+                    return RETCODE_PRECONDITION_NOT_MET;
                 }
             }
         }
         std::lock_guard<std::mutex> lock(mtx_types_);
         types_.erase(type_name);
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
     DomainId_t get_domain_id() const
@@ -388,13 +601,13 @@ public:
 
     ReturnCode_t assert_liveliness()
     {
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
     ReturnCode_t set_default_publisher_qos(
             const PublisherQos& /*qos*/)
     {
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
     const PublisherQos& get_default_publisher_qos() const
@@ -402,17 +615,39 @@ public:
         return default_pub_qos_;
     }
 
-    const ReturnCode_t get_publisher_qos_from_profile(
+    ReturnCode_t get_publisher_qos_from_profile(
             const std::string& /*profile_name*/,
             PublisherQos& /*qos*/) const
     {
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_publisher_qos_from_xml(
+            const std::string& /*xml*/,
+            PublisherQos& /*qos*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_publisher_qos_from_xml(
+            const std::string& /*xml*/,
+            PublisherQos& /*qos*/,
+            const std::string& /*profile_name*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_default_publisher_qos_from_xml(
+            const std::string& /*xml*/,
+            PublisherQos& /*qos*/) const
+    {
+        return RETCODE_OK;
     }
 
     ReturnCode_t set_default_subscriber_qos(
             const SubscriberQos& /*qos*/)
     {
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
     const SubscriberQos& get_default_subscriber_qos() const
@@ -420,17 +655,39 @@ public:
         return default_sub_qos_;
     }
 
-    const ReturnCode_t get_subscriber_qos_from_profile(
+    ReturnCode_t get_subscriber_qos_from_profile(
             const std::string& /*profile_name*/,
             SubscriberQos& /*qos*/) const
     {
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_subscriber_qos_from_xml(
+            const std::string& /*xml*/,
+            SubscriberQos& /*qos*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_subscriber_qos_from_xml(
+            const std::string& /*xml*/,
+            SubscriberQos& /*qos*/,
+            const std::string& /*profile_name*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_default_subscriber_qos_from_xml(
+            const std::string& /*xml*/,
+            SubscriberQos& /*qos*/) const
+    {
+        return RETCODE_OK;
     }
 
     ReturnCode_t set_default_topic_qos(
             const TopicQos& /*qos*/)
     {
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
     const TopicQos& get_default_topic_qos() const
@@ -438,11 +695,128 @@ public:
         return default_topic_qos_;
     }
 
-    const ReturnCode_t get_topic_qos_from_profile(
+    ReturnCode_t get_topic_qos_from_profile(
             const std::string& /*profile_name*/,
             TopicQos& /*qos*/) const
     {
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_topic_qos_from_profile(
+            const std::string& /*profile_name*/,
+            TopicQos& /*qos*/,
+            std::string& /*topic_name*/,
+            std::string& /*topic_data_type*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_topic_qos_from_xml(
+            const std::string& /*xml*/,
+            TopicQos& /*qos*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_topic_qos_from_xml(
+            const std::string& /*xml*/,
+            TopicQos& /*qos*/,
+            std::string& /*topic_name*/,
+            std::string& /*topic_data_type*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_topic_qos_from_xml(
+            const std::string& /*xml*/,
+            TopicQos& /*qos*/,
+            const std::string& /*profile_name*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_topic_qos_from_xml(
+            const std::string& /*xml*/,
+            TopicQos& /*qos*/,
+            std::string& /*topic_name*/,
+            std::string& /*topic_data_type*/,
+            const std::string& /*profile_name*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_default_topic_qos_from_xml(
+            const std::string& /*xml*/,
+            TopicQos& /*qos*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_default_topic_qos_from_xml(
+            const std::string& /*xml*/,
+            TopicQos& /*qos*/,
+            std::string& /*topic_name*/,
+            std::string& /*topic_data_type*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_replier_qos_from_profile(
+            const std::string& /*profile_name*/,
+            ReplierQos& /*qos*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_replier_qos_from_xml(
+            const std::string& /*xml*/,
+            ReplierQos& /*qos*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_replier_qos_from_xml(
+            const std::string& /*xml*/,
+            ReplierQos& /*qos*/,
+            const std::string& /*profile_name*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_default_replier_qos_from_xml(
+            const std::string& /*xml*/,
+            ReplierQos& /*qos*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_requester_qos_from_profile(
+            const std::string& /*profile_name*/,
+            RequesterQos& /*qos*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_requester_qos_from_xml(
+            const std::string& /*xml*/,
+            RequesterQos& /*qos*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_requester_qos_from_xml(
+            const std::string& /*xml*/,
+            RequesterQos& /*qos*/,
+            const std::string& /*profile_name*/) const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t get_default_requester_qos_from_xml(
+            const std::string& /*xml*/,
+            RequesterQos& /*qos*/) const
+    {
+        return RETCODE_OK;
     }
 
     bool contains_entity(
@@ -453,9 +827,9 @@ public:
     }
 
     ReturnCode_t get_current_time(
-            fastrtps::Time_t& /*current_time*/) const
+            fastdds::dds::Time_t& /*current_time*/) const
     {
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
     DomainParticipant* get_participant() const
@@ -463,7 +837,7 @@ public:
         return participant_;
     }
 
-    fastrtps::rtps::RTPSParticipant* rtps_participant()
+    fastdds::rtps::RTPSParticipant* get_rtps_participant()
     {
         return rtps_participant_;
     }
@@ -485,7 +859,7 @@ public:
         return static_cast<const InstanceHandle_t&>(guid_);
     }
 
-    const fastrtps::rtps::GUID_t& guid() const
+    const fastdds::rtps::GUID_t& guid() const
     {
         return guid_;
     }
@@ -496,36 +870,16 @@ public:
     }
 
     bool new_remote_endpoint_discovered(
-            const fastrtps::rtps::GUID_t& /*partguid*/,
+            const fastdds::rtps::GUID_t& /*partguid*/,
             uint16_t /*endpointId*/,
-            fastrtps::rtps::EndpointKind_t /*kind*/)
+            fastdds::rtps::EndpointKind_t /*kind*/)
     {
         return false;
     }
 
-    fastrtps::rtps::ResourceEvent& get_resource_event() const
+    fastdds::rtps::ResourceEvent& get_resource_event() const
     {
         return rtps_participant_->get_resource_event();
-    }
-
-    fastrtps::rtps::SampleIdentity get_type_dependencies(
-            const fastrtps::types::TypeIdentifierSeq& in) const
-    {
-        return rtps_participant_->typelookup_manager()->get_type_dependencies(in);
-    }
-
-    fastrtps::rtps::SampleIdentity get_types(
-            const fastrtps::types::TypeIdentifierSeq& in) const
-    {
-        return rtps_participant_->typelookup_manager()->get_types(in);
-    }
-
-    ReturnCode_t register_remote_type(
-            const fastrtps::types::TypeInformation& /*type_information*/,
-            const std::string& /*type_name*/,
-            std::function<void(const std::string& name, const fastrtps::types::DynamicType_ptr type)>& /*callback*/)
-    {
-        return ReturnCode_t::RETCODE_OK;
     }
 
     virtual void disable()
@@ -550,7 +904,17 @@ public:
         return false;
     }
 
-    ReturnCode_t delete_contained_entities()
+    ReturnCode_t enable_monitor_service() const
+    {
+        return RETCODE_OK;
+    }
+
+    ReturnCode_t disable_monitor_service() const
+    {
+        return RETCODE_OK;
+    }
+
+    virtual ReturnCode_t delete_contained_entities()
     {
         bool can_be_deleted = true;
 
@@ -561,7 +925,7 @@ public:
             can_be_deleted = subscriber.second->can_be_deleted();
             if (!can_be_deleted)
             {
-                return ReturnCode_t::RETCODE_PRECONDITION_NOT_MET;
+                return RETCODE_PRECONDITION_NOT_MET;
             }
         }
 
@@ -574,18 +938,18 @@ public:
             can_be_deleted = publisher.second->can_be_deleted();
             if (!can_be_deleted)
             {
-                return ReturnCode_t::RETCODE_PRECONDITION_NOT_MET;
+                return RETCODE_PRECONDITION_NOT_MET;
             }
         }
 
-        ReturnCode_t ret_code = ReturnCode_t::RETCODE_OK;
+        ReturnCode_t ret_code = RETCODE_OK;
 
         for (auto& subscriber : subscribers_)
         {
             ret_code = subscriber.first->delete_contained_entities();
-            if (!ret_code)
+            if (RETCODE_OK != ret_code)
             {
-                return ReturnCode_t::RETCODE_ERROR;
+                return RETCODE_ERROR;
             }
         }
 
@@ -600,9 +964,9 @@ public:
         for (auto& publisher : publishers_)
         {
             ret_code = publisher.first->delete_contained_entities();
-            if (!ret_code)
+            if (RETCODE_OK != ret_code)
             {
-                return ReturnCode_t::RETCODE_ERROR;
+                return RETCODE_ERROR;
             }
         }
 
@@ -620,12 +984,11 @@ public:
 
         while (it_topics != topics_.end())
         {
-            it_topics->second->set_listener(nullptr);
             delete it_topics->second;
             it_topics = topics_.erase(it_topics);
         }
 
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
     DomainParticipantListener* get_listener_for(
@@ -634,12 +997,24 @@ public:
         return nullptr;
     }
 
+    std::atomic<uint32_t>& id_counter()
+    {
+        return id_counter_;
+    }
+
+    bool fill_type_information(
+            const TypeSupport& /*type*/,
+            xtypes::TypeInformationParameter& /*type_information*/)
+    {
+        return false;
+    }
+
 protected:
 
     DomainId_t domain_id_;
-    fastrtps::rtps::GUID_t guid_;
+    fastdds::rtps::GUID_t guid_;
     DomainParticipantQos qos_;
-    fastrtps::rtps::RTPSParticipant* rtps_participant_;
+    fastdds::rtps::RTPSParticipant* rtps_participant_;
     DomainParticipant* participant_;
     DomainParticipantListener* listener_;
     std::map<Publisher*, PublisherImpl*> publishers_;
@@ -648,13 +1023,15 @@ protected:
     std::map<Subscriber*, SubscriberImpl*> subscribers_;
     mutable std::mutex mtx_subs_;
     SubscriberQos default_sub_qos_;
-    std::map<std::string, TopicImpl*> topics_;
+    std::map<std::string, TopicProxy*> topics_;
+    std::map<std::string, TopicImpl*> topics_impl_;
     mutable std::mutex mtx_topics_;
     std::map<std::string, TypeSupport> types_;
     mutable std::mutex mtx_types_;
     TopicQos default_topic_qos_;
+    std::atomic<uint32_t> id_counter_;
 
-    class MyRTPSParticipantListener : public fastrtps::rtps::RTPSParticipantListener
+    class MyRTPSParticipantListener : public fastdds::rtps::RTPSParticipantListener
     {
     public:
 
@@ -696,13 +1073,13 @@ protected:
     static ReturnCode_t check_qos(
             const DomainParticipantQos& /*qos*/)
     {
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
 };
 
-} // dds
-} // fastdds
-} // eprosima
+} // namespace dds
+} // namespace fastdds
+} // namespace eprosima
 
-#endif /* _FASTDDS_PARTICIPANTIMPL_HPP_ */
+#endif // FASTDDS_DOMAIN__DOMAINPARTICIPANTIMPL_HPP

@@ -15,20 +15,22 @@
 #ifndef _FASTDDS_SHAREDMEM_SENDERRESOURCE_HPP_
 #define _FASTDDS_SHAREDMEM_SENDERRESOURCE_HPP_
 
-#include <fastrtps/rtps/network/SenderResource.h>
+#include <fastdds/rtps/transport/SenderResource.hpp>
+
+#include <rtps/transport/ChainingSenderResource.hpp>
 #include <rtps/transport/shared_mem/SharedMemTransport.h>
 
 namespace eprosima {
 namespace fastdds {
 namespace rtps {
 
-class SharedMemSenderResource : public fastrtps::rtps::SenderResource
+class SharedMemSenderResource : public SenderResource
 {
 public:
 
     SharedMemSenderResource(
             SharedMemTransport& transport)
-        : fastrtps::rtps::SenderResource(transport.kind())
+        : SenderResource(transport.kind())
     {
         // Implementation functions are bound to the right transport parameters
         clean_up = []()
@@ -37,14 +39,15 @@ public:
                 };
 
         send_lambda_ = [&transport](
-            const fastrtps::rtps::octet* data,
-            uint32_t dataSize,
-            fastrtps::rtps::LocatorsIterator* destination_locators_begin,
-            fastrtps::rtps::LocatorsIterator* destination_locators_end,
-            const std::chrono::steady_clock::time_point& max_blocking_time_point) -> bool
+            const std::vector<NetworkBuffer>& buffers,
+            uint32_t total_bytes,
+            LocatorsIterator* destination_locators_begin,
+            LocatorsIterator* destination_locators_end,
+            const std::chrono::steady_clock::time_point& max_blocking_time_point,
+            int32_t transport_priority) -> bool
                 {
-                    return transport.send(data, dataSize, destination_locators_begin, destination_locators_end,
-                                   max_blocking_time_point);
+                    return transport.send(buffers, total_bytes, destination_locators_begin, destination_locators_end,
+                                   max_blocking_time_point, transport_priority);
                 };
 
     }
@@ -66,6 +69,17 @@ public:
         if (sender_resource->kind() == transport.kind())
         {
             returned_resource = dynamic_cast<SharedMemSenderResource*>(sender_resource);
+
+            //! May be chained
+            if (!returned_resource)
+            {
+                auto chaining_sender = dynamic_cast<ChainingSenderResource*>(sender_resource);
+
+                if (chaining_sender)
+                {
+                    returned_resource = dynamic_cast<SharedMemSenderResource*>(chaining_sender->lower_sender_cast());
+                }
+            }
         }
 
         return returned_resource;

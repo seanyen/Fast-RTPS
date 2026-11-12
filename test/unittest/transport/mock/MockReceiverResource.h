@@ -15,13 +15,15 @@
 #ifndef MOCK_RECEIVER_STUFF_H
 #define MOCK_RECEIVER_STUFF_H
 
+#include <atomic>
 #include <functional>
+#include <mutex>
 
-#include <fastrtps/rtps/network/ReceiverResource.h>
-#include <fastrtps/rtps/messages/MessageReceiver.h>
+#include <rtps/messages/MessageReceiver.h>
+#include <rtps/network/ReceiverResource.h>
 
 namespace eprosima {
-namespace fastrtps {
+namespace fastdds {
 namespace rtps {
 
 class MockMessageReceiver;
@@ -30,17 +32,22 @@ class MockReceiverResource : public ReceiverResource
 {
 public:
 
+    bool is_valid() const
+    {
+        return mValid;
+    }
+
     virtual void OnDataReceived(
             const octet*,
             const uint32_t,
             const Locator_t&,
             const Locator_t&) override;
     MockReceiverResource(
-            TransportInterface& transport,
+            eprosima::fastdds::rtps::TransportInterface& transport,
             const Locator_t& locator);
     ~MockReceiverResource();
     MessageReceiver* CreateMessageReceiver() override;
-    MockMessageReceiver* msg_receiver;
+    std::atomic<MockMessageReceiver*> msg_receiver;
 };
 
 class MockMessageReceiver : public MessageReceiver
@@ -57,12 +64,13 @@ public:
             CDRMessage_t* msg) override;
     void setCallback(
             std::function<void()> cb);
-    octet* data;
+    std::atomic<octet*> data;
+    std::mutex callback_mutex;
     std::function<void()> callback;
 };
 
 } // namespace rtps
-} // namespace fastrtps
+} // namespace fastdds
 } // namespace eprosima
 
 #endif //MOCK_RECEIVER_STUFF_H

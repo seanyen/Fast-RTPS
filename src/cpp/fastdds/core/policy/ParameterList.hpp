@@ -20,13 +20,13 @@
 #define _FASTDDS_DDS_QOS_PARAMETERLIST_HPP_
 #ifndef DOXYGEN_SHOULD_SKIP_THIS_PUBLIC
 
-#include <fastdds/dds/core/policy/ParameterTypes.hpp>
-#include <fastdds/rtps/messages/RTPS_messages.h>
-#include <fastdds/rtps/common/CDRMessage_t.h>
-#include <fastdds/rtps/messages/CDRMessage.h>
-#include <fastdds/rtps/common/CacheChange.h>
-
 #include <functional>
+
+#include <fastdds/dds/core/policy/ParameterTypes.hpp>
+#include <fastdds/rtps/common/CacheChange.hpp>
+#include <fastdds/rtps/messages/RTPS_messages.hpp>
+
+#include <rtps/messages/CDRMessage.hpp>
 
 namespace eprosima {
 namespace fastdds {
@@ -47,31 +47,31 @@ public:
      * @return True if correct.
      */
     static bool writeEncapsulationToCDRMsg(
-            fastrtps::rtps::CDRMessage_t* msg);
+            rtps::CDRMessage_t* msg);
 
     /**
      * Update the information of a cache change parsing the inline qos from a CDRMessage
-     * @param[inout] change Reference to the cache change to be updated.
-     * @param[in] msg Pointer to the message (the pos should be correct, otherwise the behaviour is undefined).
-     * @param[out] qos_size Number of bytes processed.
+     * @param [inout] change Reference to the cache change to be updated.
+     * @param [in] msg Pointer to the message (the pos should be correct, otherwise the behaviour is undefined).
+     * @param [out] qos_size Number of bytes processed.
      * @return true if parsing was correct, false otherwise.
      */
     static bool updateCacheChangeFromInlineQos(
-            fastrtps::rtps::CacheChange_t& change,
-            fastrtps::rtps::CDRMessage_t* msg,
+            rtps::CacheChange_t& change,
+            rtps::CDRMessage_t* msg,
             uint32_t& qos_size);
 
     /**
      * Read a parameterList from a CDRMessage
-     * @param[in] msg Reference to the message (the pos should be correct, otherwise the behaviour is undefined).
-     * @param[in] processor Function to process each of the parameters in the list.
-     * @param[in] use_encapsulation Whether encapsulation field should be read.
-     * @param[out] qos_size Number of bytes processed.
+     * @param [in] msg Reference to the message (the pos should be correct, otherwise the behaviour is undefined).
+     * @param [in] processor Function to process each of the parameters in the list.
+     * @param [in] use_encapsulation Whether encapsulation field should be read.
+     * @param [out] qos_size Number of bytes processed.
      * @return true if parsing was correct, false otherwise.
      */
     template<typename Pred>
     static bool readParameterListfromCDRMsg(
-            fastrtps::rtps::CDRMessage_t& msg,
+            rtps::CDRMessage_t& msg,
             Pred processor,
             bool use_encapsulation,
             uint32_t& qos_size)
@@ -82,15 +82,15 @@ public:
         {
             // Read encapsulation
             msg.pos += 1;
-            fastrtps::rtps::octet encapsulation = 0;
-            fastrtps::rtps::CDRMessage::readOctet(&msg, &encapsulation);
+            rtps::octet encapsulation = 0;
+            rtps::CDRMessage::readOctet(&msg, &encapsulation);
             if (encapsulation == PL_CDR_BE)
             {
-                msg.msg_endian = fastrtps::rtps::Endianness_t::BIGEND;
+                msg.msg_endian = rtps::Endianness_t::BIGEND;
             }
             else if (encapsulation == PL_CDR_LE)
             {
-                msg.msg_endian = fastrtps::rtps::Endianness_t::LITTLEEND;
+                msg.msg_endian = rtps::Endianness_t::LITTLEEND;
             }
             else
             {
@@ -108,9 +108,8 @@ public:
 
             ParameterId_t pid{PID_SENTINEL};
             uint16_t plength = 0;
-            bool valid = true;
-            valid &= fastrtps::rtps::CDRMessage::readUInt16(&msg, (uint16_t*)&pid);
-            valid &= fastrtps::rtps::CDRMessage::readUInt16(&msg, &plength);
+            bool valid = rtps::CDRMessage::readUInt16(&msg, (uint16_t*)&pid);
+            valid = valid && rtps::CDRMessage::readUInt16(&msg, &plength);
 
             if (pid == PID_SENTINEL)
             {
@@ -119,10 +118,18 @@ public:
                 is_sentinel = true;
             }
 
-            qos_size += (4 + plength);
+            // Check for overflow in qos_size and pos using uint64_t
+            uint64_t new_qos_size = static_cast<uint64_t>(qos_size) + 4 + static_cast<uint64_t>(plength);
+            new_qos_size = (new_qos_size + 3) & ~3; // Align to 4 byte boundary
+            uint64_t new_pos = static_cast<uint64_t>(original_pos) + new_qos_size;
+            constexpr uint64_t max_uint32 = static_cast<uint64_t>(std::numeric_limits<uint32_t>::max());
+            if ((new_qos_size > max_uint32) || (new_pos > max_uint32))
+            {
+                return false;
+            }
 
-            // Align to 4 byte boundary and prepare for next iteration
-            qos_size = (qos_size + 3) & ~3;
+            // Safely cast back to uint32_t
+            qos_size = static_cast<uint32_t>(new_qos_size);
 
             if (!valid || ((msg.pos + plength) > msg.length))
             {
@@ -130,35 +137,38 @@ public:
             }
             else if (!is_sentinel)
             {
-                if (!processor(&msg, pid, plength))
+                // Prepare a submessage for the parameter
+                rtps::CDRMessage_t submsg = rtps::CDRMessage_t::wrap_from_other_message(msg, plength);
+                if (!processor(&submsg, pid, plength))
                 {
                     return false;
                 }
             }
         }
+        msg.pos = original_pos + qos_size;
         return true;
     }
 
     /**
      * Read guid from the KEY_HASH or another specific PID parameter of a CDRMessage
-     * @param[in,out] msg Reference to the message (pos should be correct, otherwise the behaviour is undefined).
-     * @param[in] search_pid Specific PID to search
-     * @param[out] guid Reference where the guid will be written.
+     * @param [in,out] msg Reference to the message (pos should be correct, otherwise the behaviour is undefined).
+     * @param [in] search_pid Specific PID to search
+     * @param [out] guid Reference where the guid will be written.
      * @return true if a guid is returned, false otherwise.
      */
     static bool read_guid_from_cdr_msg(
-            fastrtps::rtps::CDRMessage_t& msg,
+            rtps::CDRMessage_t& msg,
             uint16_t search_pid,
-            fastrtps::rtps::GUID_t& guid);
+            rtps::GUID_t& guid);
 
     /**
      * Read change instanceHandle from the KEY_HASH or another specific PID parameter of a CDRMessage
-     * @param[in,out] change Pointer to the cache change.
-     * @param[in] search_pid Specific PID to search
+     * @param [in,out] change Pointer to the cache change.
+     * @param [in] search_pid Specific PID to search
      * @return True when instanceHandle is updated.
      */
     static bool readInstanceHandleFromCDRMsg(
-            fastrtps::rtps::CacheChange_t* change,
+            rtps::CacheChange_t* change,
             const uint16_t search_pid);
 };
 

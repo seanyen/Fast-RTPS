@@ -17,24 +17,29 @@
  *
  */
 
-#ifndef _FASTDDS_DDS_QOS_QOSPOLICIES_HPP_
-#define _FASTDDS_DDS_QOS_QOSPOLICIES_HPP_
+#ifndef FASTDDS_DDS_CORE_POLICY__QOSPOLICIES_HPP
+#define FASTDDS_DDS_CORE_POLICY__QOSPOLICIES_HPP
 
+#include <bitset>
 #include <vector>
 
+#include <fastdds/dds/core/detail/DDSReturnCode.hpp>
 #include <fastdds/dds/core/policy/ParameterTypes.hpp>
-
-#include <fastdds/rtps/attributes/PropertyPolicy.h>
+#include <fastdds/dds/core/Types.hpp>
+#include <fastdds/dds/xtypes/type_representation/detail/dds_xtypes_typeobject.hpp>
+#include <fastdds/rtps/attributes/ExternalLocators.hpp>
+#include <fastdds/rtps/attributes/PropertyPolicy.hpp>
+#include <fastdds/rtps/attributes/ResourceManagement.hpp>
 #include <fastdds/rtps/attributes/RTPSParticipantAllocationAttributes.hpp>
-#include <fastdds/rtps/attributes/RTPSParticipantAttributes.h>
+#include <fastdds/rtps/attributes/RTPSParticipantAttributes.hpp>
+#include <fastdds/rtps/attributes/ThreadSettings.hpp>
 #include <fastdds/rtps/common/LocatorList.hpp>
-#include <fastdds/rtps/common/Types.h>
-#include <fastdds/rtps/common/Time_t.h>
-#include <fastdds/rtps/resources/ResourceManagement.h>
+#include <fastdds/rtps/common/Time_t.hpp>
+#include <fastdds/rtps/common/Types.hpp>
 #include <fastdds/rtps/flowcontrol/FlowControllerConsts.hpp>
+#include <fastdds/rtps/transport/network/NetmaskFilterKind.hpp>
 
-#include <fastrtps/types/TypeObject.h>
-#include <fastrtps/utils/collections/ResourceLimitedVector.hpp>
+#include <fastdds/utils/collections/ResourceLimitedVector.hpp>
 
 namespace eprosima {
 namespace fastdds {
@@ -101,6 +106,7 @@ using PolicyMask = std::bitset<NEXT_QOS_POLICY_ID>;
 /**
  * Class QosPolicy, base for all QoS policies defined for Writers and Readers.
  */
+FASTDDS_TODO_BEFORE(4, 0, "Remove 'hasChanged' and 'send_always_' as they were replaced by 'should_be_sent'.");
 class QosPolicy
 {
 public:
@@ -119,6 +125,7 @@ public:
 
     /**
      * @brief Constructor
+     *
      * @param send_always Boolean that set if the Qos need to be sent even if it is not changed
      */
     explicit QosPolicy(
@@ -130,6 +137,7 @@ public:
 
     /**
      * @brief Copy Constructor
+     *
      * @param b Another instance of QosPolicy
      */
     QosPolicy(
@@ -152,6 +160,7 @@ public:
 
     /**
      * Whether it should always be sent.
+     *
      * @return True if it should always be sent.
      */
     virtual bool send_always() const
@@ -173,6 +182,7 @@ protected:
 /**
  * @brief Controls the behavior of the entity when acting as a factory for other entities. In other words,
  * configures the side-effects of the create_* and delete_* operations.
+ *
  * @note Mutable Qos Policy
  */
 class EntityFactoryQosPolicy
@@ -189,16 +199,17 @@ public:
     /**
      * @brief Constructor without parameters
      */
-    RTPS_DllAPI EntityFactoryQosPolicy()
+    FASTDDS_EXPORTED_API EntityFactoryQosPolicy()
         : autoenable_created_entities(true)
     {
     }
 
     /**
      * @brief Constructor
+     *
      * @param autoenable Value for the autoenable_created_entities boolean
      */
-    RTPS_DllAPI EntityFactoryQosPolicy(
+    FASTDDS_EXPORTED_API EntityFactoryQosPolicy(
             bool autoenable)
         : autoenable_created_entities(autoenable)
     {
@@ -207,7 +218,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~EntityFactoryQosPolicy()
+    virtual FASTDDS_EXPORTED_API ~EntityFactoryQosPolicy()
     {
     }
 
@@ -229,7 +240,7 @@ public:
 /**
  * Enum DurabilityQosPolicyKind_t, different kinds of durability for DurabilityQosPolicy.
  */
-typedef enum DurabilityQosPolicyKind : fastrtps::rtps::octet
+typedef enum DurabilityQosPolicyKind : fastdds::rtps::octet
 {
     /**
      * The Service does not need to keep any samples of data-instances on behalf of any DataReader that is not
@@ -249,6 +260,7 @@ typedef enum DurabilityQosPolicyKind : fastrtps::rtps::octet
     TRANSIENT_DURABILITY_QOS,
     /**
      * Data is kept on permanent storage, so that they can outlive a system session.
+     *
      * @warning Not Supported
      */
     PERSISTENT_DURABILITY_QOS
@@ -259,6 +271,7 @@ typedef enum DurabilityQosPolicyKind : fastrtps::rtps::octet
 
 /**
  * This policy expresses if the data should ‘outlive’ their writing time.
+ *
  * @note Immutable Qos Policy
  */
 class DurabilityQosPolicy : public Parameter_t, public QosPolicy
@@ -268,7 +281,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI DurabilityQosPolicy()
+    FASTDDS_EXPORTED_API DurabilityQosPolicy()
         : Parameter_t(PID_DURABILITY, PARAMETER_KIND_LENGTH)
         , QosPolicy(true)
         , kind(VOLATILE_DURABILITY_QOS)
@@ -278,21 +291,22 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~DurabilityQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~DurabilityQosPolicy() = default;
 
     /**
      * Translates kind to rtps layer equivalent
-     * @return fastrtps::rtps::DurabilityKind_t
+     *
+     * @return fastdds::rtps::DurabilityKind_t
      */
-    inline fastrtps::rtps::DurabilityKind_t durabilityKind() const
+    inline fastdds::rtps::DurabilityKind_t durabilityKind() const
     {
         switch (kind)
         {
             default:
-            case VOLATILE_DURABILITY_QOS: return fastrtps::rtps::VOLATILE;
-            case TRANSIENT_LOCAL_DURABILITY_QOS: return fastrtps::rtps::TRANSIENT_LOCAL;
-            case TRANSIENT_DURABILITY_QOS: return fastrtps::rtps::TRANSIENT;
-            case PERSISTENT_DURABILITY_QOS: return fastrtps::rtps::PERSISTENT;
+            case VOLATILE_DURABILITY_QOS: return fastdds::rtps::VOLATILE;
+            case TRANSIENT_LOCAL_DURABILITY_QOS: return fastdds::rtps::TRANSIENT_LOCAL;
+            case TRANSIENT_DURABILITY_QOS: return fastdds::rtps::TRANSIENT;
+            case PERSISTENT_DURABILITY_QOS: return fastdds::rtps::PERSISTENT;
         }
     }
 
@@ -306,18 +320,19 @@ public:
 
     /**
      * Set kind passing the rtps layer equivalent kind
-     * @param new_kind fastrtps::rtps::DurabilityKind_t
+     *
+     * @param new_kind fastdds::rtps::DurabilityKind_t
      */
     inline void durabilityKind(
-            const fastrtps::rtps::DurabilityKind_t new_kind)
+            const fastdds::rtps::DurabilityKind_t new_kind)
     {
         switch (new_kind)
         {
             default:
-            case fastrtps::rtps::VOLATILE: kind = VOLATILE_DURABILITY_QOS; break;
-            case fastrtps::rtps::TRANSIENT_LOCAL: kind = TRANSIENT_LOCAL_DURABILITY_QOS; break;
-            case fastrtps::rtps::TRANSIENT: kind = TRANSIENT_DURABILITY_QOS; break;
-            case fastrtps::rtps::PERSISTENT: kind = PERSISTENT_DURABILITY_QOS; break;
+            case fastdds::rtps::VOLATILE: kind = VOLATILE_DURABILITY_QOS; break;
+            case fastdds::rtps::TRANSIENT_LOCAL: kind = TRANSIENT_LOCAL_DURABILITY_QOS; break;
+            case fastdds::rtps::TRANSIENT: kind = TRANSIENT_DURABILITY_QOS; break;
+            case fastdds::rtps::PERSISTENT: kind = PERSISTENT_DURABILITY_QOS; break;
         }
 
     }
@@ -341,6 +356,7 @@ public:
  * @brief DataReader expects a new sample updating the value of each instance at least once every deadline period.
  * DataWriter indicates that the application commits to write a new value (using the DataWriter) for each instance managed
  * by the DataWriter at least once every deadline period.
+ *
  * @note Mutable Qos Policy
  */
 class DeadlineQosPolicy : public Parameter_t, public QosPolicy
@@ -350,7 +366,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI DeadlineQosPolicy()
+    FASTDDS_EXPORTED_API DeadlineQosPolicy()
         : Parameter_t(PID_DEADLINE, PARAMETER_TIME_LENGTH)
         , QosPolicy(true)
         , period(TIME_T_INFINITE_SECONDS, TIME_T_INFINITE_NANOSECONDS)
@@ -360,7 +376,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~DeadlineQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~DeadlineQosPolicy() = default;
 
     bool operator ==(
             const DeadlineQosPolicy& b) const
@@ -384,14 +400,16 @@ public:
      * minimum_separation. <br>
      * By default, c_TimeInifinite.
      */
-    fastrtps::Duration_t period;
+    fastdds::dds::Duration_t period;
 };
 
 /**
  * Specifies the maximum acceptable delay from the time the data is written until the data is inserted in the receiver's
  * application-cache and the receiving application is notified of the fact.This policy is a hint to the Service, not something
  * that must be monitored or enforced. The Service is not required to track or alert the user of any violation.
+ *
  * @warning This QosPolicy can be defined and is transmitted to the rest of the network but is not implemented in this version.
+ *
  * @note Mutable Qos Policy
  */
 class LatencyBudgetQosPolicy : public Parameter_t, public QosPolicy
@@ -401,7 +419,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI LatencyBudgetQosPolicy()
+    FASTDDS_EXPORTED_API LatencyBudgetQosPolicy()
         : Parameter_t(PID_LATENCY_BUDGET, PARAMETER_TIME_LENGTH)
         , QosPolicy(true)
         , duration(0, 0)
@@ -411,7 +429,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~LatencyBudgetQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~LatencyBudgetQosPolicy() = default;
 
     bool operator ==(
             const LatencyBudgetQosPolicy& b) const
@@ -429,14 +447,14 @@ public:
 
 public:
 
-    //!Maximum acceptable delay from the time data is written until it is received. <br> By default, c_TimeZero.
-    fastrtps::Duration_t duration;
+    //!Maximum acceptable delay from the time data is written until it is received. <br> By default, dds::c_TimeZero.
+    fastdds::dds::Duration_t duration;
 };
 
 /**
  * Enum LivelinessQosPolicyKind, different kinds of liveliness for LivelinessQosPolicy
  */
-typedef enum LivelinessQosPolicyKind : fastrtps::rtps::octet
+typedef enum LivelinessQosPolicyKind : fastdds::rtps::octet
 {
     /**
      * The infrastructure will automatically signal liveliness for the DataWriters at least as often as required by the lease_duration.
@@ -473,7 +491,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI LivelinessQosPolicy()
+    FASTDDS_EXPORTED_API LivelinessQosPolicy()
         : Parameter_t(PID_LIVELINESS, PARAMETER_KIND_LENGTH + PARAMETER_TIME_LENGTH)
         , QosPolicy(true)
         , kind(AUTOMATIC_LIVELINESS_QOS)
@@ -485,7 +503,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~LivelinessQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~LivelinessQosPolicy() = default;
 
     bool operator ==(
             const LivelinessQosPolicy& b) const
@@ -507,23 +525,26 @@ public:
 
     //! Liveliness kind <br> By default, AUTOMATIC_LIVELINESS.
     LivelinessQosPolicyKind kind;
-    //! Period within which liveliness should be asserted.
-    //! On a DataWriter it represents the period it commits to signal its liveliness.
-    //! On a DataReader it represents the period without assertion after which a DataWriter is considered
-    //! inactive.
-    //! By default, c_TimeInfinite.
-    fastrtps::Duration_t lease_duration;
-    //! The period for automatic assertion of liveliness.
-    //! Only used for DataWriters with AUTOMATIC liveliness.
-    //! By default, c_TimeInfinite.
-    //! @warning When not infinite, must be < lease_duration, and it is advisable to be less than 0.7*lease_duration.
-    fastrtps::Duration_t announcement_period;
+    /*! Period within which liveliness should be asserted.
+     *  On a DataWriter it represents the period it commits to signal its liveliness.
+     *  On a DataReader it represents the period without assertion after which a DataWriter is considered
+     *  inactive.
+     *  By default, dds::c_TimeInfinite.
+     */
+    fastdds::dds::Duration_t lease_duration;
+    /*! The period for automatic assertion of liveliness.
+     *  Only used for DataWriters with AUTOMATIC liveliness.
+     *  By default, dds::c_TimeInfinite.
+     *
+     * @warning When not infinite, must be < lease_duration, and it is advisable to be less than 0.7*lease_duration.
+     */
+    fastdds::dds::Duration_t announcement_period;
 };
 
 /**
  * Enum ReliabilityQosPolicyKind, different kinds of reliability for ReliabilityQosPolicy.
  */
-typedef enum ReliabilityQosPolicyKind : fastrtps::rtps::octet
+typedef enum ReliabilityQosPolicyKind : fastdds::rtps::octet
 {
     /**
      * Indicates that it is acceptable to not retry propagation of any samples. Presumably new values for the samples
@@ -542,6 +563,7 @@ typedef enum ReliabilityQosPolicyKind : fastrtps::rtps::octet
 
 /**
  * Indicates the reliability of the endpoint.
+ *
  * @note Immutable Qos Policy
  */
 class ReliabilityQosPolicy : public Parameter_t, public QosPolicy
@@ -551,7 +573,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI ReliabilityQosPolicy()
+    FASTDDS_EXPORTED_API ReliabilityQosPolicy()
         : Parameter_t(PID_RELIABILITY, PARAMETER_KIND_LENGTH + PARAMETER_TIME_LENGTH)
         , QosPolicy(true) //indicate send always
         , kind(BEST_EFFORT_RELIABILITY_QOS)
@@ -562,7 +584,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~ReliabilityQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~ReliabilityQosPolicy() = default;
 
     bool operator ==(
             const ReliabilityQosPolicy& b) const
@@ -597,7 +619,7 @@ public:
      * <br>
      * By default, 100 ms.
      */
-    fastrtps::Duration_t max_blocking_time;
+    fastdds::dds::Duration_t max_blocking_time;
 };
 
 
@@ -605,7 +627,7 @@ public:
 /**
  * Enum OwnershipQosPolicyKind, different kinds of ownership for OwnershipQosPolicy.
  */
-enum OwnershipQosPolicyKind : fastrtps::rtps::octet
+enum OwnershipQosPolicyKind : fastdds::rtps::octet
 {
     /**
      * Indicates shared ownership for each instance. Multiple writers are allowed to update the same instance and all the
@@ -623,6 +645,7 @@ enum OwnershipQosPolicyKind : fastrtps::rtps::octet
 /**
  * Specifies whether it is allowed for multiple DataWriters to write the same instance of the data and if so, how these
  * modifications should be arbitrated
+ *
  * @note Immutable Qos Policy
  */
 class OwnershipQosPolicy : public Parameter_t, public QosPolicy
@@ -632,7 +655,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI OwnershipQosPolicy()
+    FASTDDS_EXPORTED_API OwnershipQosPolicy()
         : Parameter_t(PID_OWNERSHIP, PARAMETER_KIND_LENGTH)
         , QosPolicy(true)
         , kind(SHARED_OWNERSHIP_QOS)
@@ -642,7 +665,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~OwnershipQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~OwnershipQosPolicy() = default;
 
     bool operator ==(
             const OwnershipQosPolicy& b) const
@@ -667,7 +690,7 @@ public:
 /**
  * Enum DestinationOrderQosPolicyKind, different kinds of destination order for DestinationOrderQosPolicy.
  */
-enum DestinationOrderQosPolicyKind : fastrtps::rtps::octet
+enum DestinationOrderQosPolicyKind : fastdds::rtps::octet
 {
     /**
      * Indicates that data is ordered based on the reception time at each Subscriber. Since each subscriber may receive
@@ -687,7 +710,9 @@ enum DestinationOrderQosPolicyKind : fastrtps::rtps::octet
 /**
  * Controls the criteria used to determine the logical order among changes made by Publisher entities to the same instance of
  * data (i.e., matching Topic and key).
+ *
  * @warning This QosPolicy can be defined and is transmitted to the rest of the network but is not implemented in this version.
+ *
  * @note Immutable Qos Policy
  */
 class DestinationOrderQosPolicy : public Parameter_t, public QosPolicy
@@ -697,7 +722,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI DestinationOrderQosPolicy()
+    FASTDDS_EXPORTED_API DestinationOrderQosPolicy()
         : Parameter_t(PID_DESTINATION_ORDER, PARAMETER_KIND_LENGTH)
         , QosPolicy(true)
         , kind(BY_RECEPTION_TIMESTAMP_DESTINATIONORDER_QOS)
@@ -707,7 +732,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~DestinationOrderQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~DestinationOrderQosPolicy() = default;
 
     bool operator ==(
             const DestinationOrderQosPolicy& b) const
@@ -734,13 +759,13 @@ public:
  * Class GenericDataQosPolicy, base class to transmit user data during the discovery phase.
  */
 class GenericDataQosPolicy : public Parameter_t, public QosPolicy,
-    public fastrtps::ResourceLimitedVector<fastrtps::rtps::octet>
+    public fastdds::ResourceLimitedVector<fastdds::rtps::octet>
 {
-    using ResourceLimitedOctetVector = fastrtps::ResourceLimitedVector<fastrtps::rtps::octet>;
+    using ResourceLimitedOctetVector = fastdds::ResourceLimitedVector<fastdds::rtps::octet>;
 
 public:
 
-    RTPS_DllAPI GenericDataQosPolicy(
+    FASTDDS_EXPORTED_API GenericDataQosPolicy(
             ParameterId_t pid)
         : Parameter_t(pid, 0)
         , QosPolicy(false)
@@ -748,7 +773,7 @@ public:
     {
     }
 
-    RTPS_DllAPI GenericDataQosPolicy(
+    FASTDDS_EXPORTED_API GenericDataQosPolicy(
             ParameterId_t pid,
             uint16_t in_length)
         : Parameter_t(pid, in_length)
@@ -765,7 +790,7 @@ public:
      *
      * @param data data to copy in the newly created object
      */
-    RTPS_DllAPI GenericDataQosPolicy(
+    FASTDDS_EXPORTED_API GenericDataQosPolicy(
             const GenericDataQosPolicy& data)
         : Parameter_t(data.Pid, data.length)
         , QosPolicy(false)
@@ -782,7 +807,7 @@ public:
      * @param pid Id of the parameter
      * @param data data to copy in the newly created object
      */
-    RTPS_DllAPI GenericDataQosPolicy(
+    FASTDDS_EXPORTED_API GenericDataQosPolicy(
             ParameterId_t pid,
             const collection_type& data)
         : Parameter_t(pid, 0)
@@ -793,7 +818,7 @@ public:
         length = static_cast<uint16_t>((size() + 7u) & ~3u);
     }
 
-    virtual RTPS_DllAPI ~GenericDataQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~GenericDataQosPolicy() = default;
 
     /**
      * Copies data from underlying collection type.
@@ -856,6 +881,7 @@ public:
 
     /**
      * Set the maximum size of the user data and reserves memory for that much.
+     *
      * @param size new maximum size of the user data. Zero for unlimited size
      */
     void set_max_size (
@@ -863,12 +889,12 @@ public:
     {
         if (size > 0)
         {
-            configuration_ = fastrtps::ResourceLimitedContainerConfig::fixed_size_configuration(size);
+            configuration_ = fastdds::ResourceLimitedContainerConfig::fixed_size_configuration(size);
             collection_.reserve(configuration_.maximum);
         }
         else
         {
-            configuration_ = fastrtps::ResourceLimitedContainerConfig::dynamic_allocation_configuration();
+            configuration_ = fastdds::ResourceLimitedContainerConfig::dynamic_allocation_configuration();
         }
     }
 
@@ -894,27 +920,30 @@ public:
 
     /**
      * Returns raw data vector.
+     *
      * @return raw data as vector of octets.
      * */
-    RTPS_DllAPI inline const collection_type& data_vec() const
+    FASTDDS_EXPORTED_API inline const collection_type& data_vec() const
     {
         return collection_;
     }
 
     /**
      * Returns raw data vector.
+     *
      * @return raw data as vector of octets.
      * */
-    RTPS_DllAPI inline collection_type& data_vec()
+    FASTDDS_EXPORTED_API inline collection_type& data_vec()
     {
         return collection_;
     }
 
     /**
      * Sets raw data vector.
+     *
      * @param vec raw data to set.
      * */
-    RTPS_DllAPI inline void data_vec(
+    FASTDDS_EXPORTED_API inline void data_vec(
             const collection_type& vec)
     {
         if (collection_ != vec)
@@ -927,18 +956,20 @@ public:
 
     /**
      * Returns raw data vector.
+     *
      * @return raw data as vector of octets.
      * */
-    RTPS_DllAPI inline const collection_type& getValue() const
+    FASTDDS_EXPORTED_API inline const collection_type& getValue() const
     {
         return collection_;
     }
 
     /**
      * Sets raw data vector.
+     *
      * @param vec raw data to set.
      * */
-    RTPS_DllAPI inline void setValue(
+    FASTDDS_EXPORTED_API inline void setValue(
             const collection_type& vec)
     {
         data_vec(vec);
@@ -950,6 +981,7 @@ public:
  * Class TClassName, base template for data qos policies.
  * Data not known by the middleware, but distributed by means of built-in topics.
  * By default, zero-sized sequence.
+ *
  * @note Mutable Qos Policy
  */
 // *INDENT-OFF*  (uncrustify seems to have problems with this macro)
@@ -958,12 +990,12 @@ public:
     {                                                                                      \
     public:                                                                                \
                                                                                            \
-        RTPS_DllAPI TClassName()                                                           \
+        FASTDDS_EXPORTED_API TClassName()                                                           \
             : GenericDataQosPolicy(TPid)                                                   \
         {                                                                                  \
         }                                                                                  \
                                                                                            \
-        RTPS_DllAPI TClassName(                                                            \
+        FASTDDS_EXPORTED_API TClassName(                                                            \
                 uint16_t in_length)                                                        \
             : GenericDataQosPolicy(TPid, in_length)                                        \
         {                                                                                  \
@@ -977,7 +1009,7 @@ public:
          *                                                                                 \
          * @param data data to copy in the newly created object                            \
          */                                                                                \
-        RTPS_DllAPI TClassName(                                                            \
+        FASTDDS_EXPORTED_API TClassName(                                                            \
                 const TClassName &data) = default;                                         \
                                                                                            \
         /**                                                                                \
@@ -988,13 +1020,13 @@ public:
          *                                                                                 \
          * @param data data to copy in the newly created object                            \
          */                                                                                \
-        RTPS_DllAPI TClassName(                                                            \
+        FASTDDS_EXPORTED_API TClassName(                                                            \
                 const collection_type &data)                                               \
             : GenericDataQosPolicy(TPid, data)                                             \
         {                                                                                  \
         }                                                                                  \
                                                                                            \
-        virtual RTPS_DllAPI ~TClassName() = default;                                       \
+        virtual FASTDDS_EXPORTED_API ~TClassName() = default;                                       \
                                                                                            \
         /**                                                                                \
          * Copies another TClassName.                                                      \
@@ -1063,7 +1095,9 @@ TEMPLATE_DATA_QOS_POLICY(GroupDataQosPolicy, PID_GROUP_DATA)
  * The filter states that the DataReader does not want to receive more than one value each minimum_separation, regardless
  * of how fast the changes occur. It is inconsistent for a DataReader to have a minimum_separation longer than its
  * Deadline period.
+ *
  * @warning This QosPolicy can be defined and is transmitted to the rest of the network but is not implemented in this version.
+ *
  * @note Mutable Qos Policy
  */
 class TimeBasedFilterQosPolicy : public Parameter_t, public QosPolicy
@@ -1073,7 +1107,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI TimeBasedFilterQosPolicy()
+    FASTDDS_EXPORTED_API TimeBasedFilterQosPolicy()
         : Parameter_t(PID_TIME_BASED_FILTER, PARAMETER_TIME_LENGTH)
         , QosPolicy(false)
         , minimum_separation(0, 0)
@@ -1083,7 +1117,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~TimeBasedFilterQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~TimeBasedFilterQosPolicy() = default;
 
     bool operator ==(
             const TimeBasedFilterQosPolicy& b) const
@@ -1101,14 +1135,14 @@ public:
 
 public:
 
-    //! Minimum interval between samples. By default, c_TimeZero (the DataReader is interested in all values)
-    fastrtps::Duration_t minimum_separation;
+    //! Minimum interval between samples. By default, dds::c_TimeZero (the DataReader is interested in all values)
+    fastdds::dds::Duration_t minimum_separation;
 };
 
 /**
  * Enum PresentationQosPolicyAccessScopeKind, different kinds of Presentation Policy order for PresentationQosPolicy.
  */
-enum PresentationQosPolicyAccessScopeKind : fastrtps::rtps::octet
+enum PresentationQosPolicyAccessScopeKind : fastdds::rtps::octet
 {
     /**
      * Scope spans only a single instance. Indicates that changes to one instance need not be coherent nor ordered with
@@ -1135,7 +1169,9 @@ enum PresentationQosPolicyAccessScopeKind : fastrtps::rtps::octet
  * order of changes.access_scope determines the largest scope spanning the entities for which the order and coherency
  * of changes can be preserved. The two booleans control whether coherent access and ordered access are supported within
  * the scope access_scope.
+ *
  * @warning This QosPolicy can be defined and is transmitted to the rest of the network but is not implemented in this version.
+ *
  * @note Immutable Qos Policy
  */
 class PresentationQosPolicy : public Parameter_t, public QosPolicy
@@ -1145,7 +1181,7 @@ public:
     /**
      * @brief Constructor without parameters
      */
-    RTPS_DllAPI PresentationQosPolicy()
+    FASTDDS_EXPORTED_API PresentationQosPolicy()
         : Parameter_t(PID_PRESENTATION, PARAMETER_PRESENTATION_LENGTH)
         , QosPolicy(false)
         , access_scope(INSTANCE_PRESENTATION_QOS)
@@ -1157,7 +1193,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~PresentationQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~PresentationQosPolicy() = default;
 
     bool operator ==(
             const PresentationQosPolicy& b) const
@@ -1214,6 +1250,7 @@ public:
 
     /**
      * @brief Constructor using a pointer
+     *
      * @param ptr Pointer to be set
      */
     explicit Partition_t(
@@ -1237,6 +1274,7 @@ public:
 
     /**
      * @brief Getter for the size
+     *
      * @return uint32_t with the size
      */
     uint32_t size() const
@@ -1246,6 +1284,7 @@ public:
 
     /**
      * @brief Getter for the partition name
+     *
      * @return name
      */
     const char* name() const
@@ -1262,6 +1301,7 @@ public:
  *
  * The empty string ("") is considered a valid partition that is matched with other partition names using the same rules of
  * string matching and regular-expression matching used for any other partition name.
+ *
  * @note Mutable Qos Policy
  */
 class PartitionQosPolicy : public Parameter_t, public QosPolicy
@@ -1281,10 +1321,11 @@ public:
 
         /**
          * @brief Constructor using a pointer
+         *
          * @param ptr Pointer to be set
          */
         const_iterator(
-                const fastrtps::rtps::octet* ptr)
+                const fastdds::rtps::octet* ptr)
             : ptr_(ptr)
             , value_ (ptr_)
         {
@@ -1342,7 +1383,7 @@ public:
     private:
 
         //!Pointer
-        const fastrtps::rtps::octet* ptr_;
+        const fastdds::rtps::octet* ptr_;
         //!Partition
         Partition_t value_;
 
@@ -1353,7 +1394,7 @@ public:
     /**
      * @brief Constructor without parameters
      */
-    RTPS_DllAPI PartitionQosPolicy()
+    FASTDDS_EXPORTED_API PartitionQosPolicy()
         : Parameter_t(PID_PARTITION, 0)
         , QosPolicy(false)
         , max_size_ (0)
@@ -1363,9 +1404,10 @@ public:
 
     /**
      * @brief Constructor using Parameter length
+     *
      * @param in_length Length of the parameter
      */
-    RTPS_DllAPI PartitionQosPolicy(
+    FASTDDS_EXPORTED_API PartitionQosPolicy(
             uint16_t in_length)
         : Parameter_t(PID_PARTITION, in_length)
         , QosPolicy(false)
@@ -1377,9 +1419,10 @@ public:
 
     /**
      * @brief Copy constructor
+     *
      * @param b Another PartitionQosPolicy instance
      */
-    RTPS_DllAPI PartitionQosPolicy(
+    FASTDDS_EXPORTED_API PartitionQosPolicy(
             const PartitionQosPolicy& b)
         : Parameter_t(b)
         , QosPolicy(b)
@@ -1395,7 +1438,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~PartitionQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~PartitionQosPolicy() = default;
 
     bool operator ==(
             const PartitionQosPolicy& b) const
@@ -1424,6 +1467,7 @@ public:
 
     /**
      * @brief Getter for the first position of the partition list
+     *
      * @return const_iterator
      */
     const_iterator begin() const
@@ -1433,6 +1477,7 @@ public:
 
     /**
      * @brief Getter for the end of the partition list
+     *
      * @return const_iterator
      */
     const_iterator end() const
@@ -1442,6 +1487,7 @@ public:
 
     /**
      * @brief Getter for the number of partitions
+     *
      * @return uint32_t with the size
      */
     uint32_t size() const
@@ -1451,6 +1497,7 @@ public:
 
     /**
      * @brief Check if the set is empty
+     *
      * @return true if it is empty, false otherwise
      */
     uint32_t empty() const
@@ -1460,6 +1507,7 @@ public:
 
     /**
      * @brief Setter for the maximum size reserved for partitions (in bytes)
+     *
      * @param size Size to be set
      */
     void set_max_size (
@@ -1471,6 +1519,7 @@ public:
 
     /**
      * @brief Getter for the maximum size (in bytes)
+     *
      * @return uint32_t with the maximum size
      */
     uint32_t max_size () const
@@ -1480,9 +1529,10 @@ public:
 
     /**
      * Appends a name to the list of partition names.
+     *
      * @param name Name to append.
      */
-    RTPS_DllAPI inline void push_back(
+    FASTDDS_EXPORTED_API inline void push_back(
             const char* name)
     {
         //Realloc if needed;
@@ -1497,7 +1547,7 @@ public:
 
         partitions_.reserve(partitions_.length + size + alignment + 4);
 
-        fastrtps::rtps::octet* o = (fastrtps::rtps::octet*)&size;
+        fastdds::rtps::octet* o = (fastdds::rtps::octet*)&size;
         memcpy(partitions_.data + partitions_.length, o, 4);
         partitions_.length += 4;
 
@@ -1514,7 +1564,7 @@ public:
     /**
      * Clears list of partition names
      */
-    RTPS_DllAPI inline void clear() override
+    FASTDDS_EXPORTED_API inline void clear() override
     {
         partitions_.length = 0;
         Npartitions_ = 0;
@@ -1523,18 +1573,20 @@ public:
 
     /**
      * Returns partition names.
+     *
      * @return Vector of partition name strings.
      */
-    RTPS_DllAPI inline const std::vector<std::string> getNames() const
+    FASTDDS_EXPORTED_API inline const std::vector<std::string> getNames() const
     {
         return names();
     }
 
     /**
      * Overrides partition names
+     *
      * @param nam Vector of partition name strings.
      */
-    RTPS_DllAPI inline void setNames(
+    FASTDDS_EXPORTED_API inline void setNames(
             std::vector<std::string>& nam)
     {
         names(nam);
@@ -1542,9 +1594,10 @@ public:
 
     /**
      * Returns partition names.
+     *
      * @return Vector of partition name strings.
      */
-    RTPS_DllAPI inline const std::vector<std::string> names() const
+    FASTDDS_EXPORTED_API inline const std::vector<std::string> names() const
     {
         std::vector<std::string> names;
         if (Npartitions_ > 0)
@@ -1559,9 +1612,10 @@ public:
 
     /**
      * Overrides partition names
+     *
      * @param nam Vector of partition name strings.
      */
-    RTPS_DllAPI inline void names(
+    FASTDDS_EXPORTED_API inline void names(
             std::vector<std::string>& nam)
     {
         clear();
@@ -1577,7 +1631,7 @@ private:
     //! Maximum size <br> By default, 0.
     uint32_t max_size_;
     //! Partitions
-    fastrtps::rtps::SerializedPayload_t partitions_;
+    fastdds::rtps::SerializedPayload_t partitions_;
     //! Number of partitions. <br> By default, 0.
     uint32_t Npartitions_;
 };
@@ -1585,7 +1639,7 @@ private:
 /**
  * Enum HistoryQosPolicyKind, different kinds of History Qos for HistoryQosPolicy.
  */
-enum HistoryQosPolicyKind : fastrtps::rtps::octet
+enum HistoryQosPolicyKind : fastdds::rtps::octet
 {
     /**
      * On the publishing side, the Service will only attempt to keep the most recent “depth” samples of each instance
@@ -1612,6 +1666,7 @@ enum HistoryQosPolicyKind : fastrtps::rtps::octet
  * existing DataReader entities. The behavior with regards to a DataReaderentities discovered after a sample is written
  * is controlled by the DURABILITY QoS policy. On the subscribing side it controls the samples that should be maintained
  * until the application “takes” them from the Service.
+ *
  * @note Immutable Qos Policy
  */
 class HistoryQosPolicy : public Parameter_t, public QosPolicy
@@ -1621,7 +1676,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI HistoryQosPolicy()
+    FASTDDS_EXPORTED_API HistoryQosPolicy()
         : Parameter_t(PID_HISTORY, PARAMETER_KIND_LENGTH + 4)
         , QosPolicy(true)
         , kind(KEEP_LAST_HISTORY_QOS)
@@ -1632,7 +1687,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~HistoryQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~HistoryQosPolicy() = default;
 
     bool operator ==(
             const HistoryQosPolicy& b) const
@@ -1653,17 +1708,17 @@ public:
 
     //!HistoryQosPolicyKind. <br> By default, KEEP_LAST_HISTORY_QOS.
     HistoryQosPolicyKind kind;
-    //!History depth. <br> By default, 1. If a value other than 1 is specified, it should
-    //! be consistent with the settings of the ResourceLimitsQosPolicy.
-    //! @warning Only takes effect if the kind is KEEP_LAST_HISTORY_QOS.
+    /*! History depth. <br> By default, 1. If a value other than 1 is specified, it should
+     *  be consistent with the settings of the ResourceLimitsQosPolicy.
+     *
+     *  @warning Only takes effect if the kind is KEEP_LAST_HISTORY_QOS.
+     */
     int32_t depth;
 };
 
-//! A special value indicating an unlimited quantity
-constexpr int32_t LENGTH_UNLIMITED = -1;
-
 /**
  * Specifies the resources that the Service can consume in order to meet the requested QoS
+ *
  * @note Immutable Qos Policy
  */
 class ResourceLimitsQosPolicy : public Parameter_t, public QosPolicy
@@ -1674,23 +1729,27 @@ public:
      * @brief Specifies the maximum number of data-samples the DataWriter (or DataReader) can manage across all the
      * instances associated with it. Represents the maximum samples the middleware can store for any one DataWriter
      * (or DataReader). <br>
-     * By default, 5000.
-     * @warning It is inconsistent for this value to be less than max_samples_per_instance.
+     * Value less or equal to 0 means infinite resources. By default, LENGTH_UNLIMITED.
+     *
+     * @warning It is inconsistent if `max_samples < (max_instances * max_samples_per_instance)`.
      */
     int32_t max_samples;
     /**
      * @brief Represents the maximum number of instances DataWriter (or DataReader) can manage. <br>
-     * By default, 10.
+     * Value less or equal to 0 means infinite resources. By default, LENGTH_UNLIMITED.
+     *
+     * @warning It is inconsistent if `(max_instances * max_samples_per_instance) > max_samples`.
      */
     int32_t max_instances;
     /**
      * @brief Represents the maximum number of samples of any one instance a DataWriter(or DataReader) can manage. <br>
-     * By default, 400.
-     * @warning It is inconsistent for this value to be greater than max_samples.
+     * Value less or equal to 0 means infinite resources. By default, LENGTH_UNLIMITED.
+     *
+     * @warning It is inconsistent if `(max_instances * max_samples_per_instance) > max_samples`.
      */
     int32_t max_samples_per_instance;
     /**
-     * @brief Number of samples currently allocated. <br>
+     * @brief Number of samples initially allocated. <br>
      * By default, 100.
      */
     int32_t allocated_samples;
@@ -1703,12 +1762,12 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI ResourceLimitsQosPolicy()
-        : Parameter_t(PID_RESOURCE_LIMITS, 4 + 4 + 4)
+    FASTDDS_EXPORTED_API ResourceLimitsQosPolicy()
+        : Parameter_t(PID_RESOURCE_LIMITS, 4 * 5)
         , QosPolicy(false)
-        , max_samples(5000)
-        , max_instances(10)
-        , max_samples_per_instance(400)
+        , max_samples(LENGTH_UNLIMITED)
+        , max_instances(LENGTH_UNLIMITED)
+        , max_samples_per_instance(LENGTH_UNLIMITED)
         , allocated_samples(100)
         , extra_samples(1)
     {
@@ -1717,7 +1776,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~ResourceLimitsQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~ResourceLimitsQosPolicy() = default;
 
     bool operator ==(
             const ResourceLimitsQosPolicy& b) const
@@ -1743,7 +1802,9 @@ public:
 /**
  * Specifies the configuration of the durability service. That is, the service that implements the DurabilityQosPolicy kind
  * of TRANSIENT and PERSISTENT.
+ *
  * @warning This QosPolicy can be defined and is transmitted to the rest of the network but is not implemented in this version.
+ *
  * @note Immutable Qos Policy
  */
 class DurabilityServiceQosPolicy : public Parameter_t, public QosPolicy
@@ -1753,7 +1814,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI DurabilityServiceQosPolicy()
+    FASTDDS_EXPORTED_API DurabilityServiceQosPolicy()
         : Parameter_t(PID_DURABILITY_SERVICE, PARAMETER_TIME_LENGTH + PARAMETER_KIND_LENGTH + 4 + 4 + 4 + 4)
         , QosPolicy(false)
         , history_kind(KEEP_LAST_HISTORY_QOS)
@@ -1767,7 +1828,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~DurabilityServiceQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~DurabilityServiceQosPolicy() = default;
 
     bool operator ==(
             const DurabilityServiceQosPolicy& b) const
@@ -1791,9 +1852,9 @@ public:
 
     /**
      * @brief Control when the service is able to remove all information regarding a data-instance. <br>
-     * By default, c_TimeZero.
+     * By default, dds::c_TimeZero.
      */
-    fastrtps::Duration_t service_cleanup_delay;
+    fastdds::dds::Duration_t service_cleanup_delay;
     /**
      * @brief Controls the HistoryQosPolicy of the fictitious DataReader that stores the data within the durability service.
      * <br>
@@ -1831,6 +1892,7 @@ public:
 
 /**
  * Specifies the maximum duration of validity of the data written by the DataWriter.
+ *
  * @note Mutable Qos Policy
  */
 class LifespanQosPolicy : public Parameter_t, public QosPolicy
@@ -1840,7 +1902,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI LifespanQosPolicy()
+    FASTDDS_EXPORTED_API LifespanQosPolicy()
         : Parameter_t(PID_LIFESPAN, PARAMETER_TIME_LENGTH)
         , QosPolicy(true)
         , duration(TIME_T_INFINITE_SECONDS, TIME_T_INFINITE_NANOSECONDS)
@@ -1850,7 +1912,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~LifespanQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~LifespanQosPolicy() = default;
 
     bool operator ==(
             const LifespanQosPolicy& b) const
@@ -1868,14 +1930,15 @@ public:
 
 public:
 
-    //! Period of validity. <br> By default, c_TimeInfinite.
-    fastrtps::Duration_t duration;
+    //! Period of validity. <br> By default, dds::c_TimeInfinite.
+    fastdds::dds::Duration_t duration;
 };
 
 /**
  * Specifies the value of the “strength” used to arbitrate among multiple DataWriter objects that attempt to modify the same
  * instance of a data-object (identified by Topic + key).This policy only applies if the OWNERSHIP QoS policy is of kind
  * EXCLUSIVE.
+ *
  * @note Mutable Qos Policy
  */
 class OwnershipStrengthQosPolicy : public Parameter_t, public QosPolicy
@@ -1885,7 +1948,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI OwnershipStrengthQosPolicy()
+    FASTDDS_EXPORTED_API OwnershipStrengthQosPolicy()
         : Parameter_t(PID_OWNERSHIP_STRENGTH, 4)
         , QosPolicy(false)
         , value(0)
@@ -1895,7 +1958,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~OwnershipStrengthQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~OwnershipStrengthQosPolicy() = default;
 
     bool operator ==(
             const OwnershipStrengthQosPolicy& b) const
@@ -1920,7 +1983,7 @@ public:
 
 /**
  * This policy is a hint to the infrastructure as to how to set the priority of the underlying transport used to send the data.
- * @warning This QosPolicy can be defined and is transmitted to the rest of the network but is not implemented in this version.
+ *
  * @note Mutable Qos Policy
  */
 class TransportPriorityQosPolicy : public Parameter_t, public QosPolicy
@@ -1928,12 +1991,12 @@ class TransportPriorityQosPolicy : public Parameter_t, public QosPolicy
 public:
 
     //!Priority <br> By default, 0.
-    uint32_t value;
+    int32_t value;
 
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI TransportPriorityQosPolicy()
+    FASTDDS_EXPORTED_API TransportPriorityQosPolicy()
         : Parameter_t(PID_TRANSPORT_PRIORITY, 4)
         , QosPolicy(false)
         , value(0)
@@ -1943,7 +2006,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~TransportPriorityQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~TransportPriorityQosPolicy() = default;
 
     bool operator ==(
             const TransportPriorityQosPolicy& b) const
@@ -1964,7 +2027,7 @@ public:
 /**
  * Enum PublishModeQosPolicyKind, different kinds of publication synchronism
  */
-typedef enum PublishModeQosPolicyKind : fastrtps::rtps::octet
+typedef enum PublishModeQosPolicyKind : fastdds::rtps::octet
 {
     SYNCHRONOUS_PUBLISH_MODE,    //!< Synchronous publication mode (default for writers).
     ASYNCHRONOUS_PUBLISH_MODE    //!< Asynchronous publication mode.
@@ -1980,14 +2043,24 @@ public:
     //!PublishModeQosPolicyKind <br> By default, SYNCHRONOUS_PUBLISH_MODE.
     PublishModeQosPolicyKind kind = SYNCHRONOUS_PUBLISH_MODE;
 
-    //! Name of the flow controller used when publish mode kind is ASYNCHRONOUS_PUBLISH_MODE.
-    //! @since 2.4.0
-    const char* flow_controller_name = fastdds::rtps::FASTDDS_FLOW_CONTROLLER_DEFAULT;
+    /*! Name of the flow controller used when publish mode kind is ASYNCHRONOUS_PUBLISH_MODE.
+     *
+     * @since 2.4.0
+     */
+    std::string flow_controller_name = fastdds::rtps::FASTDDS_FLOW_CONTROLLER_DEFAULT;
 
     inline void clear() override
     {
         PublishModeQosPolicy reset = PublishModeQosPolicy();
         std::swap(*this, reset);
+    }
+
+    bool operator ==(
+            const PublishModeQosPolicy& b) const
+    {
+        return (this->kind == b.kind) &&
+               flow_controller_name == b.flow_controller_name.c_str() &&
+               QosPolicy::operator ==(b);
     }
 
 };
@@ -2002,37 +2075,43 @@ typedef enum DataRepresentationId : int16_t
     XCDR2_DATA_REPRESENTATION = 2    //!< Extended CDR Encoding version 2
 } DataRepresentationId_t;
 
+//! Default @ref DataRepresentationId used in Fast DDS.
+constexpr DataRepresentationId_t DEFAULT_DATA_REPRESENTATION {DataRepresentationId_t::XCDR_DATA_REPRESENTATION};
+
 /**
  * With multiple standard data Representations available, and vendor-specific extensions possible, DataWriters and
  * DataReaders must be able to negotiate which data representation(s) to use. This negotiation shall occur based on
  * DataRepresentationQosPolicy.
+ *
  * @warning If a writer’s offered representation is contained within a reader’s sequence, the offer satisfies the
  * request and the policies are compatible. Otherwise, they are incompatible.
+ *
  * @note Immutable Qos Policy
  */
 class DataRepresentationQosPolicy : public Parameter_t, public QosPolicy
 {
 public:
 
-    //!List of DataRepresentationId. <br> By default, empty list.
+    //!List of @ref DataRepresentationId. <br> By default, empty list.
     std::vector<DataRepresentationId_t> m_value;
 
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI DataRepresentationQosPolicy()
+    FASTDDS_EXPORTED_API DataRepresentationQosPolicy()
         : Parameter_t(PID_DATA_REPRESENTATION, 0)
-        , QosPolicy(true)
+        , QosPolicy(false)
     {
     }
 
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~DataRepresentationQosPolicy() override = default;
+    virtual FASTDDS_EXPORTED_API ~DataRepresentationQosPolicy() override = default;
 
     /**
      * Compares the given policy to check if it's equal.
+     *
      * @param b QoS Policy.
      * @return True if the policy is equal.
      */
@@ -2068,6 +2147,7 @@ enum TypeConsistencyKind : uint16_t
 /**
  * The TypeConsistencyEnforcementQosPolicy defines the rules for determining whether the type used to publish a given data
  * stream is consistent with that used to subscribe to it. It applies to DataReaders.
+ *
  * @note Immutable Qos Policy
  */
 class TypeConsistencyEnforcementQosPolicy : public Parameter_t, public QosPolicy
@@ -2087,7 +2167,7 @@ public:
     bool m_ignore_sequence_bounds;
     /**
      * @brief This option controls whether string bounds are taken into consideration for type assignability. If the option
-     *  is set to TRUE, string bounds (maximum lengths) are not considered as part of the type assignability. This means
+     * is set to TRUE, string bounds (maximum lengths) are not considered as part of the type assignability. This means
      * that a T2 string type with maximum length L2 would be assignable to a T1 string type with maximum length L1, even
      * if L2 is greater than L1. If the option is set to false, then string bounds are taken into consideration for type
      * assignability and in order for T1 to be assignable from T2 it is required that L1>= L2. <br>
@@ -2117,7 +2197,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI TypeConsistencyEnforcementQosPolicy()
+    FASTDDS_EXPORTED_API TypeConsistencyEnforcementQosPolicy()
         : Parameter_t(PID_TYPE_CONSISTENCY_ENFORCEMENT, 8) // 2 + 5 + 1 alignment byte
         , QosPolicy(true)
     {
@@ -2132,7 +2212,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~TypeConsistencyEnforcementQosPolicy() override = default;
+    virtual FASTDDS_EXPORTED_API ~TypeConsistencyEnforcementQosPolicy() override = default;
 
     bool operator ==(
             const TypeConsistencyEnforcementQosPolicy& b) const
@@ -2157,6 +2237,7 @@ public:
 
 /**
  * Class DisablePositiveACKsQosPolicy to disable sending of positive ACKs
+ *
  * @note Immutable Qos Policy
  */
 class DisablePositiveACKsQosPolicy : public Parameter_t, public QosPolicy
@@ -2166,7 +2247,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI DisablePositiveACKsQosPolicy()
+    FASTDDS_EXPORTED_API DisablePositiveACKsQosPolicy()
         : Parameter_t(PID_DISABLE_POSITIVE_ACKS, PARAMETER_BOOL_LENGTH)
         , QosPolicy(true)
         , enabled(false)
@@ -2177,12 +2258,13 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~DisablePositiveACKsQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~DisablePositiveACKsQosPolicy() = default;
 
     bool operator ==(
             const DisablePositiveACKsQosPolicy& b) const
     {
         return enabled == b.enabled &&
+               duration == b.duration &&
                Parameter_t::operator ==(b) &&
                QosPolicy::operator ==(b);
     }
@@ -2197,8 +2279,8 @@ public:
 
     //! True if this QoS is enabled. <br> By default, false
     bool enabled;
-    //! The duration to keep samples for (not serialized as not needed by reader). <br> By default, c_TimeInfinite
-    fastrtps::Duration_t duration;
+    //! The duration to keep samples for (not serialized as not needed by reader). <br> By default, dds::c_TimeInfinite
+    fastdds::dds::Duration_t duration;
 };
 
 /**
@@ -2209,13 +2291,13 @@ class TypeIdV1 : public Parameter_t, public QosPolicy
 public:
 
     //!Type Identifier
-    fastrtps::types::TypeIdentifier m_type_identifier;
+    xtypes::TypeIdentifier m_type_identifier;
 
 
     /**
      * @brief Constructor without parameters
      */
-    RTPS_DllAPI TypeIdV1()
+    FASTDDS_EXPORTED_API TypeIdV1()
         : Parameter_t(PID_TYPE_IDV1, 0)
         , QosPolicy(false)
         , m_type_identifier()
@@ -2224,9 +2306,10 @@ public:
 
     /**
      * @brief Copy constructor
+     *
      * @param type Another instance of TypeIdV1
      */
-    RTPS_DllAPI TypeIdV1(
+    FASTDDS_EXPORTED_API TypeIdV1(
             const TypeIdV1& type)
         : Parameter_t(type.Pid, type.length)
         , QosPolicy(type.send_always_)
@@ -2236,10 +2319,11 @@ public:
 
     /**
      * @brief Constructor using a TypeIndentifier
+     *
      * @param identifier TypeIdentifier to be set
      */
-    RTPS_DllAPI TypeIdV1(
-            const fastrtps::types::TypeIdentifier& identifier)
+    FASTDDS_EXPORTED_API TypeIdV1(
+            const xtypes::TypeIdentifier& identifier)
         : Parameter_t(PID_TYPE_IDV1, 0)
         , QosPolicy(false)
         , m_type_identifier(identifier)
@@ -2248,9 +2332,10 @@ public:
 
     /**
      * @brief Move constructor
+     *
      * @param type Another instance of TypeIdV1
      */
-    RTPS_DllAPI TypeIdV1(
+    FASTDDS_EXPORTED_API TypeIdV1(
             TypeIdV1&& type)
         : Parameter_t(type.Pid, type.length)
         , QosPolicy(type.send_always_)
@@ -2258,7 +2343,7 @@ public:
     {
     }
 
-    RTPS_DllAPI TypeIdV1& operator =(
+    FASTDDS_EXPORTED_API TypeIdV1& operator =(
             const TypeIdV1& type)
     {
         Pid = type.Pid;
@@ -2270,7 +2355,7 @@ public:
         return *this;
     }
 
-    RTPS_DllAPI TypeIdV1& operator =(
+    FASTDDS_EXPORTED_API TypeIdV1& operator =(
             TypeIdV1&& type)
     {
         Pid = type.Pid;
@@ -2285,15 +2370,15 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~TypeIdV1() override = default;
+    virtual FASTDDS_EXPORTED_API ~TypeIdV1() override = default;
 
     inline void clear() override
     {
         *this = TypeIdV1();
     }
 
-    RTPS_DllAPI TypeIdV1& operator =(
-            const fastrtps::types::TypeIdentifier& type_id)
+    FASTDDS_EXPORTED_API TypeIdV1& operator =(
+            const xtypes::TypeIdentifier& type_id)
     {
         m_type_identifier = type_id;
         return *this;
@@ -2301,9 +2386,10 @@ public:
 
     /**
      * @brief Getter for the TypeIndentifier
+     *
      * @return TypeIdentifier reference
      */
-    RTPS_DllAPI const fastrtps::types::TypeIdentifier& get() const
+    FASTDDS_EXPORTED_API const xtypes::TypeIdentifier& get() const
     {
         return m_type_identifier;
     }
@@ -2318,12 +2404,12 @@ class TypeObjectV1 : public Parameter_t, public QosPolicy
 public:
 
     //!Type Object
-    fastrtps::types::TypeObject m_type_object;
+    xtypes::TypeObject m_type_object;
 
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI TypeObjectV1()
+    FASTDDS_EXPORTED_API TypeObjectV1()
         : Parameter_t(PID_TYPE_OBJECTV1, 0)
         , QosPolicy(false)
         , m_type_object()
@@ -2332,9 +2418,10 @@ public:
 
     /**
      * @brief Copy constructor
+     *
      * @param type Another instance of TypeObjectV1
      */
-    RTPS_DllAPI TypeObjectV1(
+    FASTDDS_EXPORTED_API TypeObjectV1(
             const TypeObjectV1& type)
         : Parameter_t(type.Pid, type.length)
         , QosPolicy(type.send_always_)
@@ -2344,10 +2431,11 @@ public:
 
     /**
      * @brief Constructor using a TypeObject
+     *
      * @param type TypeObject to be set
      */
-    RTPS_DllAPI TypeObjectV1(
-            const fastrtps::types::TypeObject& type)
+    FASTDDS_EXPORTED_API TypeObjectV1(
+            const xtypes::TypeObject& type)
         : Parameter_t(PID_TYPE_OBJECTV1, 0)
         , QosPolicy(false)
         , m_type_object(type)
@@ -2356,9 +2444,10 @@ public:
 
     /**
      * @brief Move constructor
+     *
      * @param type Another instance of TypeObjectV1
      */
-    RTPS_DllAPI TypeObjectV1(
+    FASTDDS_EXPORTED_API TypeObjectV1(
             TypeObjectV1&& type)
         : Parameter_t(type.Pid, type.length)
         , QosPolicy(type.send_always_)
@@ -2366,7 +2455,7 @@ public:
     {
     }
 
-    RTPS_DllAPI TypeObjectV1& operator =(
+    FASTDDS_EXPORTED_API TypeObjectV1& operator =(
             const TypeObjectV1& type)
     {
         Pid = type.Pid;
@@ -2378,7 +2467,7 @@ public:
         return *this;
     }
 
-    RTPS_DllAPI TypeObjectV1& operator =(
+    FASTDDS_EXPORTED_API TypeObjectV1& operator =(
             TypeObjectV1&& type)
     {
         Pid = type.Pid;
@@ -2393,15 +2482,15 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~TypeObjectV1() override = default;
+    virtual FASTDDS_EXPORTED_API ~TypeObjectV1() override = default;
 
     inline void clear() override
     {
         *this = TypeObjectV1();
     }
 
-    RTPS_DllAPI TypeObjectV1& operator =(
-            const fastrtps::types::TypeObject& type_object)
+    FASTDDS_EXPORTED_API TypeObjectV1& operator =(
+            const xtypes::TypeObject& type_object)
     {
         m_type_object = type_object;
         return *this;
@@ -2409,9 +2498,10 @@ public:
 
     /**
      * @brief Getter for the TypeObject
+     *
      * @return TypeObject reference
      */
-    RTPS_DllAPI const fastrtps::types::TypeObject& get() const
+    FASTDDS_EXPORTED_API const xtypes::TypeObject& get() const
     {
         return m_type_object;
     }
@@ -2421,19 +2511,19 @@ public:
 namespace xtypes {
 
 /**
- * Class xtypes::TypeInformation
+ * Class xtypes::TypeInformationParameter
  */
-class TypeInformation : public Parameter_t, public QosPolicy
+class TypeInformationParameter : public Parameter_t, public QosPolicy
 {
 public:
 
     //!Type Information
-    fastrtps::types::TypeInformation type_information;
+    eprosima::fastdds::dds::xtypes::TypeInformation type_information;
 
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI TypeInformation()
+    FASTDDS_EXPORTED_API TypeInformationParameter()
         : Parameter_t(PID_TYPE_INFORMATION, 0)
         , QosPolicy(false)
         , type_information()
@@ -2443,10 +2533,11 @@ public:
 
     /**
      * @brief Copy constructor
-     * @param type Another instance of TypeInformation
+     *
+     * @param type Another instance of TypeInformationParameter
      */
-    RTPS_DllAPI TypeInformation(
-            const TypeInformation& type)
+    FASTDDS_EXPORTED_API TypeInformationParameter(
+            const TypeInformationParameter& type)
         : Parameter_t(type.Pid, type.length)
         , QosPolicy(type.send_always_)
         , type_information(type.type_information)
@@ -2455,11 +2546,12 @@ public:
     }
 
     /**
-     * @brief Constructor using a fastrtps::types::TypeInformation
-     * @param info fastrtps::types::TypeInformation to be set
+     * @brief Constructor using a TypeInformation
+     *
+     * @param info TypeInformation to be set
      */
-    RTPS_DllAPI TypeInformation(
-            const fastrtps::types::TypeInformation& info)
+    FASTDDS_EXPORTED_API TypeInformationParameter(
+            const eprosima::fastdds::dds::xtypes::TypeInformation& info)
         : Parameter_t(PID_TYPE_INFORMATION, 0)
         , QosPolicy(false)
         , type_information(info)
@@ -2469,10 +2561,11 @@ public:
 
     /**
      * @brief Move Constructor
-     * @param type Another instance of TypeInformation
+     *
+     * @param type Another instance of TypeInformationParameter
      */
-    RTPS_DllAPI TypeInformation(
-            TypeInformation&& type)
+    FASTDDS_EXPORTED_API TypeInformationParameter(
+            TypeInformationParameter&& type)
         : Parameter_t(type.Pid, type.length)
         , QosPolicy(type.send_always_)
         , type_information(std::move(type.type_information))
@@ -2480,8 +2573,8 @@ public:
     {
     }
 
-    RTPS_DllAPI TypeInformation& operator =(
-            const TypeInformation& type)
+    FASTDDS_EXPORTED_API TypeInformationParameter& operator =(
+            const TypeInformationParameter& type)
     {
         Pid = type.Pid;
         length = type.length;
@@ -2493,8 +2586,8 @@ public:
         return *this;
     }
 
-    RTPS_DllAPI TypeInformation& operator =(
-            TypeInformation&& type)
+    FASTDDS_EXPORTED_API TypeInformationParameter& operator =(
+            TypeInformationParameter&& type)
     {
         Pid = type.Pid;
         length = type.length;
@@ -2509,34 +2602,36 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~TypeInformation() override = default;
+    virtual FASTDDS_EXPORTED_API ~TypeInformationParameter() override = default;
 
     inline void clear() override
     {
-        *this = TypeInformation();
+        *this = TypeInformationParameter();
     }
 
     /**
      * @brief Check if it is assigned
+     *
      * @return true if assigned, false if not
      */
-    RTPS_DllAPI bool assigned() const
+    FASTDDS_EXPORTED_API bool assigned() const
     {
         return assigned_;
     }
 
     /**
      * @brief Setter for assigned boolean
+     *
      * @param value Boolean to be set
      */
-    RTPS_DllAPI void assigned(
+    FASTDDS_EXPORTED_API void assigned(
             bool value)
     {
         assigned_ = value;
     }
 
-    RTPS_DllAPI TypeInformation& operator =(
-            const fastrtps::types::TypeInformation& type_info)
+    FASTDDS_EXPORTED_API TypeInformationParameter& operator =(
+            const TypeInformation& type_info)
     {
         type_information = type_info;
         assigned_ = true;
@@ -2545,17 +2640,17 @@ public:
 
 private:
 
-    //!Boolean that states if the TypeInformation has been asigned manually or not.
+    //!Boolean that states if the TypeInformationParameter has been assigned manually or not.
     bool assigned_;
 };
 
 } // namespace xtypes
 
 //!Holds allocation limits affecting collections managed by a participant.
-using ParticipantResourceLimitsQos = fastrtps::rtps::RTPSParticipantAllocationAttributes;
+using ParticipantResourceLimitsQos = fastdds::rtps::RTPSParticipantAllocationAttributes;
 
 //! Property policies
-using PropertyPolicyQos = fastrtps::rtps::PropertyPolicy;
+using PropertyPolicyQos = fastdds::rtps::PropertyPolicy;
 
 //! Qos Policy that configures the wire protocol
 class WireProtocolConfigQos : public QosPolicy
@@ -2566,16 +2661,17 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI WireProtocolConfigQos()
+    FASTDDS_EXPORTED_API WireProtocolConfigQos()
         : QosPolicy(false)
         , participant_id(-1)
+        , easy_mode_("")
     {
     }
 
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~WireProtocolConfigQos() = default;
+    virtual FASTDDS_EXPORTED_API ~WireProtocolConfigQos() = default;
 
     bool operator ==(
             const WireProtocolConfigQos& b) const
@@ -2584,9 +2680,11 @@ public:
                (this->participant_id == b.participant_id) &&
                (this->builtin == b.builtin) &&
                (this->port == b.port) &&
-               (this->throughput_controller == b.throughput_controller) &&
                (this->default_unicast_locator_list == b.default_unicast_locator_list) &&
                (this->default_multicast_locator_list == b.default_multicast_locator_list) &&
+               (this->default_external_unicast_locators == b.default_external_unicast_locators) &&
+               (this->ignore_non_matching_locators == b.ignore_non_matching_locators) &&
+               (this->easy_mode_ == b.easy_mode()) &&
                QosPolicy::operator ==(b);
     }
 
@@ -2597,19 +2695,16 @@ public:
     }
 
     //! Optionally allows user to define the GuidPrefix_t
-    fastrtps::rtps::GuidPrefix_t prefix;
+    fastdds::rtps::GuidPrefix_t prefix;
 
-    //!Participant ID <br> By default, -1.
+    //! Participant ID <br> By default, -1.
     int32_t participant_id;
 
     //! Builtin parameters.
-    fastrtps::rtps::BuiltinAttributes builtin;
+    fastdds::rtps::BuiltinAttributes builtin;
 
-    //!Port Parameters
-    fastrtps::rtps::PortParameters port;
-
-    //!Throughput controller parameters. Leave default for uncontrolled flow.
-    fastrtps::rtps::ThroughputControllerDescriptor throughput_controller;
+    //! Port Parameters
+    fastdds::rtps::PortParameters port;
 
     /**
      * Default list of Unicast Locators to be used for any Endpoint defined inside this RTPSParticipant in the case
@@ -2619,9 +2714,66 @@ public:
 
     /**
      * Default list of Multicast Locators to be used for any Endpoint defined inside this RTPSParticipant in the
-     * case that it was defined with NO UnicastLocators. This is usually left empty.
+     * case that it was defined with NO MulticastLocators. This is usually left empty.
      */
     rtps::LocatorList default_multicast_locator_list;
+
+    /**
+     * The collection of external locators to use for communication on user created topics.
+     */
+    rtps::ExternalLocators default_external_unicast_locators;
+
+    /**
+     * Whether locators that don't match with the announced locators should be kept.
+     */
+    bool ignore_non_matching_locators = false;
+
+    /**
+     * @brief Setter for ROS 2 Easy Mode IP
+     *
+     * @param ip IP address to set
+     *
+     * @note The IP address must be an IPv4 address. If it is not, the IP address will not be set.
+     *
+     * @return RETCODE_OK if the IP address is set, an specific error code otherwise:
+     * @return RETCODE_BAD_PARAMETER if the IP address is not an IPv4 address.
+     *
+     */
+    ReturnCode_t easy_mode(
+            const std::string& ip)
+    {
+        // Check if the input is empty
+        if (!ip.empty())
+        {
+            // Check if the input is a valid IP
+            if (!rtps::IPLocator::isIPv4(ip))
+            {
+                EPROSIMA_LOG_ERROR(
+                    WIREPROTOCOLQOS, "Invalid IP address format for ROS 2 Easy Mode. It must be an IPv4 address.");
+
+                return RETCODE_BAD_PARAMETER;
+            }
+        }
+
+        easy_mode_ = ip;
+
+        return RETCODE_OK;
+    }
+
+    /**
+     * @brief Getter for ROS 2 Easy Mode IP
+     *
+     * @return IP address if set, empty string otherwise
+     */
+    const std::string& easy_mode() const
+    {
+        return easy_mode_;
+    }
+
+private:
+
+    //! ROS 2 Easy Mode IP
+    std::string easy_mode_;
 };
 
 //! Qos Policy to configure the transport layer
@@ -2632,18 +2784,20 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI TransportConfigQos()
+    FASTDDS_EXPORTED_API TransportConfigQos()
         : QosPolicy(false)
         , use_builtin_transports(true)
         , send_socket_buffer_size(0)
         , listen_socket_buffer_size(0)
+        , max_msg_size_no_frag(0)
+        , netmask_filter(fastdds::rtps::NetmaskFilterKind::AUTO)
     {
     }
 
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~TransportConfigQos() = default;
+    virtual FASTDDS_EXPORTED_API ~TransportConfigQos() = default;
 
     bool operator ==(
             const TransportConfigQos& b) const
@@ -2652,6 +2806,9 @@ public:
                (this->use_builtin_transports == b.use_builtin_transports) &&
                (this->send_socket_buffer_size == b.send_socket_buffer_size) &&
                (this->listen_socket_buffer_size == b.listen_socket_buffer_size) &&
+               (this->builtin_transports_reception_threads_ == b.builtin_transports_reception_threads_) &&
+               (this->max_msg_size_no_frag == b.max_msg_size_no_frag) &&
+               (this->netmask_filter == b.netmask_filter) &&
                QosPolicy::operator ==(b);
     }
 
@@ -2677,21 +2834,37 @@ public:
      * By default, 0.
      */
     uint32_t listen_socket_buffer_size;
+
+    //! Thread settings for the builtin transports reception threads
+    rtps::ThreadSettings builtin_transports_reception_threads_;
+
+    /*!
+     * @brief Maximum message size used to avoid fragmentation, set ONLY in LARGE_DATA.
+     *
+     * If this value is not zero, the network factory will allow the initialization of UDP transports with maxMessageSize
+     * higher than 65500K.
+     */
+    uint32_t max_msg_size_no_frag;
+
+    //! Netmask filter configuration
+    fastdds::rtps::NetmaskFilterKind netmask_filter;
 };
 
-//!Qos Policy to configure the endpoint
+//! Qos Policy to configure the endpoint
+FASTDDS_TODO_BEFORE(4, 0, "Make all eProsima extended QoS inherit from Parameter_t and QosPolicy if possible.");
 class RTPSEndpointQos
 {
 public:
 
-    RTPS_DllAPI RTPSEndpointQos()
-        : user_defined_id(-1)
-        , entity_id(-1)
-        , history_memory_policy(fastrtps::rtps::PREALLOCATED_MEMORY_MODE)
-    {
-    }
+    FASTDDS_EXPORTED_API RTPSEndpointQos() = default;
 
-    virtual RTPS_DllAPI ~RTPSEndpointQos() = default;
+    virtual FASTDDS_EXPORTED_API ~RTPSEndpointQos() = default;
+
+    inline void clear()
+    {
+        RTPSEndpointQos reset = RTPSEndpointQos();
+        std::swap(*this, reset);
+    }
 
     bool operator ==(
             const RTPSEndpointQos& b) const
@@ -2699,28 +2872,37 @@ public:
         return (this->unicast_locator_list == b.unicast_locator_list) &&
                (this->multicast_locator_list == b.multicast_locator_list) &&
                (this->remote_locator_list == b.remote_locator_list) &&
+               (this->external_unicast_locators == b.external_unicast_locators) &&
+               (this->ignore_non_matching_locators == b.ignore_non_matching_locators) &&
                (this->user_defined_id == b.user_defined_id) &&
                (this->entity_id == b.entity_id) &&
                (this->history_memory_policy == b.history_memory_policy);
     }
 
-    //!Unicast locator list
+    //! Unicast locator list
     rtps::LocatorList unicast_locator_list;
 
-    //!Multicast locator list
+    //! Multicast locator list
     rtps::LocatorList multicast_locator_list;
 
-    //!Remote locator list
+    //! Remote locator list
     rtps::LocatorList remote_locator_list;
 
-    //!User Defined ID, used for StaticEndpointDiscovery. <br> By default, -1.
-    int16_t user_defined_id;
+    //! The collection of external locators to use for communication.
+    fastdds::rtps::ExternalLocators external_unicast_locators;
 
-    //!Entity ID, if the user wants to specify the EntityID of the endpoint. <br> By default, -1.
-    int16_t entity_id;
+    //! Whether locators that don't match with the announced locators should be kept.
+    bool ignore_non_matching_locators = false;
 
-    //!Underlying History memory policy. <br> By default, PREALLOCATED_MEMORY_MODE.
-    fastrtps::rtps::MemoryManagementPolicy_t history_memory_policy;
+    //! User Defined ID, used for StaticEndpointDiscovery. <br> By default, -1.
+    int16_t user_defined_id = -1;
+
+    //! Entity ID, if the user wants to specify the EntityID of the endpoint. <br> By default, -1.
+    int16_t entity_id = -1;
+
+    //! Underlying History memory policy. <br> By default, PREALLOCATED_WITH_REALLOC_MEMORY_MODE.
+    fastdds::rtps::MemoryManagementPolicy_t history_memory_policy =
+            fastdds::rtps::PREALLOCATED_WITH_REALLOC_MEMORY_MODE;
 };
 
 //!Qos Policy to configure the limit of the writer resources
@@ -2731,29 +2913,40 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI WriterResourceLimitsQos()
+    FASTDDS_EXPORTED_API WriterResourceLimitsQos()
+        : matched_subscriber_allocation()
+        , reader_filters_allocation(0, 32u, 1u)
     {
     }
 
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~WriterResourceLimitsQos() = default;
+    virtual FASTDDS_EXPORTED_API ~WriterResourceLimitsQos() = default;
+
+    inline void clear()
+    {
+        WriterResourceLimitsQos reset = WriterResourceLimitsQos();
+        std::swap(*this, reset);
+    }
 
     bool operator ==(
             const WriterResourceLimitsQos& b) const
     {
-        return (this->matched_subscriber_allocation == b.matched_subscriber_allocation);
+        return (matched_subscriber_allocation == b.matched_subscriber_allocation) &&
+               (reader_filters_allocation == b.reader_filters_allocation);
     }
 
     //!Matched subscribers allocation limits.
-    fastrtps::ResourceLimitedContainerConfig matched_subscriber_allocation;
+    fastdds::ResourceLimitedContainerConfig matched_subscriber_allocation;
+    //!Reader filters allocation limits.
+    fastdds::ResourceLimitedContainerConfig reader_filters_allocation;
 };
 
 /**
  * Data sharing configuration kinds
  */
-enum DataSharingKind : fastrtps::rtps::octet
+enum DataSharingKind : fastdds::rtps::octet
 {
     /**
      * Automatic configuration.
@@ -2774,6 +2967,7 @@ enum DataSharingKind : fastrtps::rtps::octet
 
 /**
  * Qos Policy to configure the data sharing
+ *
  * @note Immutable Qos Policy
  */
 class DataSharingQosPolicy : public Parameter_t, public QosPolicy
@@ -2783,7 +2977,7 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI DataSharingQosPolicy()
+    FASTDDS_EXPORTED_API DataSharingQosPolicy()
         : Parameter_t(PID_DATASHARING, 0)
         , QosPolicy(true)
     {
@@ -2794,13 +2988,14 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~DataSharingQosPolicy() = default;
+    virtual FASTDDS_EXPORTED_API ~DataSharingQosPolicy() = default;
 
     /**
      * @brief Copy constructor
+     *
      * @param b Another DataSharingQosPolicy instance
      */
-    RTPS_DllAPI DataSharingQosPolicy(
+    FASTDDS_EXPORTED_API DataSharingQosPolicy(
             const DataSharingQosPolicy& b)
         : Parameter_t(b)
         , QosPolicy(b)
@@ -2814,7 +3009,7 @@ public:
         domain_ids_ = b.domain_ids();
     }
 
-    RTPS_DllAPI DataSharingQosPolicy& operator =(
+    FASTDDS_EXPORTED_API DataSharingQosPolicy& operator =(
             const DataSharingQosPolicy& b)
     {
         QosPolicy::operator =(b);
@@ -2826,6 +3021,7 @@ public:
                 max_domains_ :
                 b.domain_ids().size());
         domain_ids_ = b.domain_ids();
+        data_sharing_listener_thread_ = b.data_sharing_listener_thread();
 
         return *this;
     }
@@ -2836,6 +3032,7 @@ public:
         return kind_ == b.kind_ &&
                shm_directory_ == b.shm_directory_ &&
                domain_ids_ == b.domain_ids_ &&
+               data_sharing_listener_thread_ == b.data_sharing_listener_thread_ &&
                Parameter_t::operator ==(b) &&
                QosPolicy::operator ==(b);
     }
@@ -2849,7 +3046,7 @@ public:
     /**
      * @return the current DataSharing configuration mode
      */
-    RTPS_DllAPI const DataSharingKind& kind() const
+    FASTDDS_EXPORTED_API const DataSharingKind& kind() const
     {
         return kind_;
     }
@@ -2857,7 +3054,7 @@ public:
     /**
      * @return the current DataSharing shared memory directory
      */
-    RTPS_DllAPI const std::string& shm_directory() const
+    FASTDDS_EXPORTED_API const std::string& shm_directory() const
     {
         return shm_directory_;
     }
@@ -2875,7 +3072,7 @@ public:
      *
      * @return the current DataSharing domain IDs
      */
-    RTPS_DllAPI const std::vector<uint64_t>& domain_ids() const
+    FASTDDS_EXPORTED_API const std::vector<uint64_t>& domain_ids() const
     {
         return domain_ids_;
     }
@@ -2883,7 +3080,7 @@ public:
     /**
      * @param size the new maximum number of domain IDs
      */
-    RTPS_DllAPI void set_max_domains(
+    FASTDDS_EXPORTED_API void set_max_domains(
             uint32_t size)
     {
         domain_ids_.reserve(size);
@@ -2893,7 +3090,7 @@ public:
     /**
      * @return the current configured maximum number of domain IDs
      */
-    RTPS_DllAPI const uint32_t& max_domains() const
+    FASTDDS_EXPORTED_API const uint32_t& max_domains() const
     {
         return max_domains_;
     }
@@ -2904,7 +3101,7 @@ public:
      * The default shared memory directory of the OS is used.
      * A default domain ID is automatically computed.
      */
-    RTPS_DllAPI void automatic()
+    FASTDDS_EXPORTED_API void automatic()
     {
         setup (AUTO, "", std::vector<uint16_t>());
     }
@@ -2916,7 +3113,7 @@ public:
      *
      * @param domain_ids the user configured DataSharing domain IDs (16 bits).
      */
-    RTPS_DllAPI void automatic(
+    FASTDDS_EXPORTED_API void automatic(
             const std::vector<uint16_t>& domain_ids)
     {
         setup (AUTO, "", domain_ids);
@@ -2929,7 +3126,7 @@ public:
      *
      * @param directory The shared memory directory to use.
      */
-    RTPS_DllAPI void automatic(
+    FASTDDS_EXPORTED_API void automatic(
             const std::string& directory)
     {
         setup (AUTO, directory, std::vector<uint16_t>());
@@ -2941,7 +3138,7 @@ public:
      * @param directory The shared memory directory to use.
      * @param domain_ids the user configured DataSharing domain IDs (16 bits).
      */
-    RTPS_DllAPI void automatic(
+    FASTDDS_EXPORTED_API void automatic(
             const std::string& directory,
             const std::vector<uint16_t>& domain_ids)
     {
@@ -2956,7 +3153,7 @@ public:
      * @param directory The shared memory directory to use.
      *      It is mandatory to provide a non-empty name or the creation of endpoints will fail.
      */
-    RTPS_DllAPI void on(
+    FASTDDS_EXPORTED_API void on(
             const std::string& directory)
     {
         // TODO [ILG]: This parameter is unused right now. Activate the assert once it is used
@@ -2971,7 +3168,7 @@ public:
      *      It is mandatory to provide a non-empty name or the creation of endpoints will fail.
      * @param domain_ids the user configured DataSharing domain IDs (16 bits).
      */
-    RTPS_DllAPI void on(
+    FASTDDS_EXPORTED_API void on(
             const std::string& directory,
             const std::vector<uint16_t>& domain_ids)
     {
@@ -2983,7 +3180,7 @@ public:
     /**
      * @brief Configures the DataSharing in disabled mode
      */
-    RTPS_DllAPI void off()
+    FASTDDS_EXPORTED_API void off()
     {
         setup (OFF, "", std::vector<uint16_t>());
     }
@@ -2993,7 +3190,7 @@ public:
      *
      * @param id 16 bit identifier
      */
-    RTPS_DllAPI void add_domain_id(
+    FASTDDS_EXPORTED_API void add_domain_id(
             uint16_t id)
     {
         if (max_domains_ == 0 || domain_ids_.size() < max_domains_)
@@ -3010,6 +3207,37 @@ public:
         {
             domain_ids_.push_back(id);
         }
+    }
+
+    /**
+     * Getter for DataSharing listener thread ThreadSettings
+     *
+     * @return rtps::ThreadSettings reference
+     */
+    rtps::ThreadSettings& data_sharing_listener_thread()
+    {
+        return data_sharing_listener_thread_;
+    }
+
+    /**
+     * Getter for DataSharing listener thread ThreadSettings
+     *
+     * @return rtps::ThreadSettings reference
+     */
+    const rtps::ThreadSettings& data_sharing_listener_thread() const
+    {
+        return data_sharing_listener_thread_;
+    }
+
+    /**
+     * Setter for the DataSharing listener thread ThreadSettings
+     *
+     * @param value New ThreadSettings to be set
+     */
+    void data_sharing_listener_thread(
+            const rtps::ThreadSettings& value)
+    {
+        data_sharing_listener_thread_ = value;
     }
 
 private:
@@ -3040,6 +3268,9 @@ private:
 
     //! Only endpoints with matching domain IDs are DataSharing compatible
     std::vector<uint64_t> domain_ids_;
+
+    //! Thread settings for the DataSharing listener thread
+    rtps::ThreadSettings data_sharing_listener_thread_;
 };
 
 
@@ -3047,4 +3278,4 @@ private:
 } // namespace fastdds
 } // namespace eprosima
 
-#endif // _FASTDDS_DDS_QOS_QOSPOLICIES_HPP_
+#endif // FASTDDS_DDS_CORE_POLICY__QOSPOLICIES_HPP

@@ -1,4 +1,5 @@
-struct HelloWorld
+@final
+struct FixedSized
 {
 	unsigned short index;
 };

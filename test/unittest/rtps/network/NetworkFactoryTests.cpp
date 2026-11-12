@@ -12,31 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <fastrtps/utils/collections/ResourceLimitedVector.hpp>
-#include <fastrtps/rtps/network/NetworkFactory.h>
-
-#include <fastrtps/transport/UDPv4TransportDescriptor.h>
-#include <fastrtps/transport/TCPv4TransportDescriptor.h>
-#include <fastrtps/transport/UDPv6TransportDescriptor.h>
-#include <fastrtps/transport/TCPv6TransportDescriptor.h>
-
-#include <fastrtps/rtps/network/NetworkFactory.h>
-
-#include <fastrtps/utils/IPLocator.h>
-
-#include <MockTransport.h>
-#include <gtest/gtest.h>
 #include <vector>
 
-using namespace std;
-using namespace eprosima::fastrtps;
-using namespace eprosima::fastrtps::rtps;
+#include <gtest/gtest.h>
+
+#include <fastdds/rtps/attributes/RTPSParticipantAttributes.hpp>
+#include <fastdds/rtps/transport/TCPv4TransportDescriptor.hpp>
+#include <fastdds/rtps/transport/TCPv6TransportDescriptor.hpp>
+#include <fastdds/rtps/transport/UDPv4TransportDescriptor.hpp>
+#include <fastdds/rtps/transport/UDPv6TransportDescriptor.hpp>
+#include <fastdds/utils/collections/ResourceLimitedVector.hpp>
+#include <fastdds/utils/IPLocator.hpp>
+
+#include <MockTransport.h>
+#include <rtps/network/NetworkFactory.hpp>
+
+using namespace eprosima::fastdds;
+using namespace eprosima::fastdds::rtps;
 
 class NetworkTests : public ::testing::Test
 {
 public:
 
-    NetworkFactory networkFactoryUnderTest;
+    RTPSParticipantAttributes pattr{};
+    NetworkFactory networkFactoryUnderTest{pattr};
     void HELPER_RegisterTransportWithKindAndChannels(
             int kind,
             unsigned int channels);
@@ -65,7 +64,7 @@ TEST_F(NetworkTests, build_sender_resource_returns_send_resource_for_a_kind_comp
     int ArbitraryKind = 1;
     HELPER_RegisterTransportWithKindAndChannels(ArbitraryKind, 10);
 
-    SendResourceList send_resource_list;
+    eprosima::fastdds::rtps::SendResourceList send_resource_list;
 
     Locator_t kindCompatibleLocator;
     kindCompatibleLocator.kind = ArbitraryKind;
@@ -121,7 +120,7 @@ TEST_F(NetworkTests, build_sender_resource_returns_multiple_resources_if_multipl
     HELPER_RegisterTransportWithKindAndChannels(2, 10);
     HELPER_RegisterTransportWithKindAndChannels(2, 10);
 
-    SendResourceList send_resource_list;
+    eprosima::fastdds::rtps::SendResourceList send_resource_list;
 
     Locator_t locatorCompatibleWithTwoTransports;
     locatorCompatibleWithTwoTransports.kind = 2;
@@ -223,7 +222,7 @@ TEST_F(NetworkTests, BuildSenderResources_returns_empty_vector_if_no_registered_
     mockTransportDescriptor.maximumChannels = 10;
     networkFactoryUnderTest.RegisterTransport<MockTransport, MockTransportDescriptor>(mockTransportDescriptor);
 
-    SendResourceList send_resource_list;
+    eprosima::fastdds::rtps::SendResourceList send_resource_list;
 
     Locator_t locatorOfDifferentKind;
     locatorOfDifferentKind.kind = 2;
@@ -242,7 +241,7 @@ TEST_F(NetworkTests, BuildSenderResources_returns_empty_vector_if_all_compatible
     // Given
     int ArbitraryKind = 1;
     HELPER_RegisterTransportWithKindAndChannels(ArbitraryKind, 10);
-    SendResourceList send_resource_list;
+    eprosima::fastdds::rtps::SendResourceList send_resource_list;
     Locator_t locator;
     locator.kind = ArbitraryKind;
 
@@ -288,7 +287,7 @@ TEST_F(NetworkTests, A_receiver_resource_accurately_reports_whether_it_supports_
    // Given
    int ArbitraryKind = 1;
    HELPER_RegisterTransportWithKindAndChannels(ArbitraryKind, 10);
-   SendResourceList send_resource_list;
+   eprosima::fastdds::rtps::SendResourceList send_resource_list;
    Locator_t locator;
    locator.kind = ArbitraryKind;
    ASSERT_TRUE(networkFactoryUnderTest.build_send_resources(send_resource_list, locator));
@@ -650,14 +649,119 @@ TEST_F(NetworkTests, LocatorShrink)
     std::vector<ShrinkLocatorCase_t> test_cases;
     fill_blackbox_locators_test_cases(test_cases);
 
-    NetworkFactory f;
-    UDPv4TransportDescriptor udpv4;
+    NetworkFactory f{pattr};
+    eprosima::fastdds::rtps::UDPv4TransportDescriptor udpv4;
     f.RegisterTransport(&udpv4);
     // TODO: Register more transports
 
     for (ShrinkLocatorCase_t& test : test_cases)
     {
         test.perform_selector_test(f);
+    }
+}
+
+TEST_F(NetworkTests, FillDefaultMulticastLocator_UDPv4_fills_default_attributes_when_empty)
+{
+    // Register UDPv4 transport
+    NetworkFactory f{pattr};
+    eprosima::fastdds::rtps::UDPv4TransportDescriptor udpv4;
+    f.RegisterTransport(&udpv4);
+
+    const uint32_t test_port = 7400;
+
+    // Case 1: empty address + zero port -> both address and port are filled
+    {
+        Locator_t locator;
+        locator.kind = LOCATOR_KIND_UDPv4;
+        locator.port = 0;
+        locator.set_Invalid_Address();
+
+        ASSERT_TRUE(f.fill_default_multicast_locator(locator, test_port));
+        ASSERT_EQ(locator.port, test_port);
+        ASSERT_TRUE(IsAddressDefined(locator));
+
+        Locator_t expected;
+        IPLocator::createLocator(LOCATOR_KIND_UDPv4, "239.255.0.1", test_port, expected);
+        ASSERT_EQ(IPLocator::toIPv4string(locator), IPLocator::toIPv4string(expected));
+    }
+
+    // Case 2: empty address + nonzero port -> only address is filled, port preserved
+    {
+        Locator_t locator;
+        locator.kind = LOCATOR_KIND_UDPv4;
+        locator.port = 7500;
+        locator.set_Invalid_Address();
+
+        ASSERT_TRUE(f.fill_default_multicast_locator(locator, test_port));
+        ASSERT_EQ(locator.port, static_cast<uint32_t>(7500));
+        ASSERT_TRUE(IsAddressDefined(locator));
+
+        Locator_t expected;
+        IPLocator::createLocator(LOCATOR_KIND_UDPv4, "239.255.0.1", 7500, expected);
+        ASSERT_EQ(IPLocator::toIPv4string(locator), IPLocator::toIPv4string(expected));
+    }
+
+    // Case 3: address already defined -> address is NOT overwritten
+    {
+        Locator_t locator;
+        IPLocator::createLocator(LOCATOR_KIND_UDPv4, "239.255.1.1", 0, locator);
+
+        ASSERT_TRUE(f.fill_default_multicast_locator(locator, test_port));
+        ASSERT_EQ(locator.port, test_port);
+        ASSERT_EQ(IPLocator::toIPv4string(locator), std::string("239.255.1.1"));
+    }
+}
+
+TEST_F(NetworkTests, FillDefaultMulticastLocator_UDPv6_fills_default_attributes_when_empty)
+{
+    // Register UDPv6 transport
+    NetworkFactory f{pattr};
+    eprosima::fastdds::rtps::UDPv6TransportDescriptor udpv6;
+    f.RegisterTransport(&udpv6);
+
+    const uint32_t test_port = 7400;
+
+    // Case 1: empty address -> address is filled with default UDPv6 multicast address
+    {
+        Locator_t locator;
+        locator.kind = LOCATOR_KIND_UDPv6;
+        locator.port = 0;
+        locator.set_Invalid_Address();
+
+        ASSERT_TRUE(f.fill_default_multicast_locator(locator, test_port));
+        ASSERT_EQ(locator.port, test_port);
+        ASSERT_TRUE(IsAddressDefined(locator));
+
+        Locator_t expected;
+        IPLocator::createLocator(LOCATOR_KIND_UDPv6, "ff1e::ffff:efff:1", test_port, expected);
+        ASSERT_EQ(IPLocator::toIPv6string(locator), IPLocator::toIPv6string(expected));
+    }
+
+    // Case 2: empty address + nonzero port -> only address is filled, port preserved
+    {
+        Locator_t locator;
+        locator.kind = LOCATOR_KIND_UDPv6;
+        locator.port = 7500;
+        locator.set_Invalid_Address();
+
+        ASSERT_TRUE(f.fill_default_multicast_locator(locator, test_port));
+        ASSERT_EQ(locator.port, static_cast<uint32_t>(7500));
+        ASSERT_TRUE(IsAddressDefined(locator));
+
+        Locator_t expected;
+        IPLocator::createLocator(LOCATOR_KIND_UDPv6, "ff1e::ffff:efff:1", 7500, expected);
+        ASSERT_EQ(IPLocator::toIPv6string(locator), IPLocator::toIPv6string(expected));
+    }
+
+    // Case 3: address already defined -> address is NOT overwritten
+    {
+        Locator_t locator;
+        IPLocator::createLocator(LOCATOR_KIND_UDPv6, "ff1e::1", 0, locator);
+        std::string original_address = IPLocator::toIPv6string(locator);
+
+        ASSERT_TRUE(f.fill_default_multicast_locator(locator, test_port));
+        ASSERT_EQ(locator.port, test_port);
+        ASSERT_EQ(IPLocator::toIPv6string(locator), original_address);
     }
 }
 

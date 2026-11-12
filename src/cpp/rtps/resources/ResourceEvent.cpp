@@ -16,16 +16,18 @@
  * @file ResourceEvent.cpp
  */
 
-#include <fastdds/rtps/resources/ResourceEvent.h>
+#include <rtps/resources/ResourceEvent.h>
+
+#include <cassert>
+
 #include <fastdds/dds/log/Log.hpp>
 
 #include "TimedEventImpl.h"
-
-#include <cassert>
-#include <thread>
+#include <utils/thread.hpp>
+#include <utils/threading.hpp>
 
 namespace eprosima {
-namespace fastrtps {
+namespace fastdds {
 namespace rtps {
 
 static bool event_compare(
@@ -35,32 +37,41 @@ static bool event_compare(
     return lhs->next_trigger_time() < rhs->next_trigger_time();
 }
 
+ResourceEvent::ResourceEvent()
+    : thread_(new eprosima::thread())
+{
+}
+
 ResourceEvent::~ResourceEvent()
 {
     // All timer should be unregistered before destroying this object.
     assert(pending_timers_.empty());
     assert(timers_count_ == 0);
 
-    logInfo(RTPS_PARTICIPANT, "Removing event thread");
-    if (thread_.joinable())
+    stop_thread();
+}
+
+void ResourceEvent::stop_thread()
+{
+    EPROSIMA_LOG_INFO(RTPS_PARTICIPANT, "Removing event thread");
+    if (thread_->joinable())
     {
         {
-            std::unique_lock<TimedMutex> lock(mutex_);
+            std::lock_guard<TimedMutex> guard(mutex_);
             stop_.store(true);
             cv_.notify_one();
         }
-        thread_.join();
+        thread_->join();
     }
 }
 
 void ResourceEvent::register_timer(
         TimedEventImpl* /*event*/)
 {
-    assert(!stop_.load());
-
-    std::lock_guard<TimedMutex> lock(mutex_);
-
-    ++timers_count_;
+    {
+        std::lock_guard<TimedMutex> lock(mutex_);
+        ++timers_count_;
+    }
 
     // Notify the execution thread that something changed
     cv_.notify_one();
@@ -69,14 +80,18 @@ void ResourceEvent::register_timer(
 void ResourceEvent::unregister_timer(
         TimedEventImpl* event)
 {
-    assert(!stop_.load());
-
     std::unique_lock<TimedMutex> lock(mutex_);
 
-    cv_manipulation_.wait(lock, [&]()
-            {
-                return allow_vector_manipulation_;
-            });
+    bool is_service_thread = thread_->is_calling_thread();
+
+    //! Let the service thread to manipulate resources
+    if (!is_service_thread)
+    {
+        cv_manipulation_.wait(lock, [&]()
+                {
+                    return allow_vector_manipulation_;
+                });
+    }
 
     bool should_notify = false;
     std::vector<TimedEventImpl*>::iterator it;
@@ -94,6 +109,14 @@ void ResourceEvent::unregister_timer(
     if (it != active_timers_.end())
     {
         active_timers_.erase(it);
+
+        if (is_service_thread)
+        {
+            //! Warn the do_timer_actions loop to skip checking the rest of active_timers
+            //! in this iteration to prevent iterator invalidation
+            skip_checking_active_timers_.store(true);
+        }
+
         should_notify = true;
     }
 
@@ -123,9 +146,13 @@ void ResourceEvent::notify(
         TimedEventImpl* event,
         const std::chrono::steady_clock::time_point& timeout)
 {
+#if HAVE_STRICT_REALTIME
     std::unique_lock<TimedMutex> lock(mutex_, std::defer_lock);
-
     if (lock.try_lock_until(timeout))
+#else
+    static_cast<void>(timeout);
+    std::lock_guard<TimedMutex> _(mutex_);
+#endif  // HAVE_STRICT_REALTIME
     {
         if (register_timer_nts(event))
         {
@@ -191,6 +218,13 @@ void ResourceEvent::event_service()
         allow_vector_manipulation_ = false;
         resize_collections();
     }
+
+    // Thread being stopped. Allow other threads to manipulate the timer collections.
+    {
+        std::lock_guard<TimedMutex> guard(mutex_);
+        allow_vector_manipulation_ = true;
+    }
+    cv_manipulation_.notify_all();
 }
 
 void ResourceEvent::sort_timers()
@@ -238,12 +272,19 @@ void ResourceEvent::do_timer_actions()
     }
 
     // Trigger active timers
+    skip_checking_active_timers_.store(false);
     for (TimedEventImpl* tp : active_timers_)
     {
         if (tp->next_trigger_time() <= current_time_)
         {
             did_something = true;
             tp->trigger(current_time_, cancel_time);
+
+            //! skip this iteration as active_timers has been manipulated
+            if (skip_checking_active_timers_.load())
+            {
+                break;
+            }
         }
         else
         {
@@ -269,16 +310,23 @@ void ResourceEvent::do_timer_actions()
     }
 }
 
-void ResourceEvent::init_thread()
+void ResourceEvent::init_thread(
+        const fastdds::rtps::ThreadSettings& thread_cfg,
+        const char* name_fmt,
+        uint32_t thread_id)
 {
     std::lock_guard<TimedMutex> lock(mutex_);
 
     allow_vector_manipulation_ = false;
+    stop_.store(false);
     resize_collections();
 
-    thread_ = std::thread(&ResourceEvent::event_service, this);
+    *thread_ = eprosima::create_thread([this]()
+                    {
+                        event_service();
+                    }, thread_cfg, name_fmt, thread_id);
 }
 
 } /* namespace rtps */
-} /* namespace fastrtps */
+} /* namespace fastdds */
 } /* namespace eprosima */

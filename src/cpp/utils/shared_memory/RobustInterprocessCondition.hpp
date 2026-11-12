@@ -20,6 +20,8 @@
 #include <boost/interprocess/sync/interprocess_semaphore.hpp>
 #include <boost/interprocess/sync/scoped_lock.hpp>
 
+#include "BoostAtExitRegistry.hpp"
+
 namespace eprosima {
 namespace fastdds {
 namespace rtps {
@@ -78,7 +80,7 @@ public:
      * this->notify_one() or this->notify_all(), and then reacquires the lock.
      * @throw boost::interprocess::interprocess_exception on error.
      */
-    template <typename L>
+    template<typename L>
     void wait(
             L& lock)
     {
@@ -90,7 +92,7 @@ public:
      * while (!pred()) wait(lock)
      * @throw boost::interprocess::interprocess_exception on error.
      */
-    template <typename L, typename Pr>
+    template<typename L, typename Pr>
     void wait(
             L& lock,
             Pr pred)
@@ -109,7 +111,7 @@ public:
      * @return false if time abs_time is reached, otherwise true.
      * @throw boost::interprocess::interprocess_exception on error.
      */
-    template <typename L>
+    template<typename L>
     bool timed_wait(
             L& lock,
             const boost::posix_time::ptime& abs_time)
@@ -131,7 +133,7 @@ public:
      * }
      * return true;
      */
-    template <typename L, typename Pr>
+    template<typename L, typename Pr>
     bool timed_wait(
             L& lock,
             const boost::posix_time::ptime& abs_time,
@@ -178,7 +180,7 @@ public:
      * @return false if time abs_time is reached, otherwise true.
      * @throw boost::interprocess::interprocess_exception on error.
      */
-    template <typename L>
+    template<typename L>
     bool timed_wait(
             L& lock,
             const std::chrono::time_point<std::chrono::steady_clock>& max_blocking_time)
@@ -194,7 +196,7 @@ public:
      * }
      * return true;
      */
-    template <typename L, typename Pr>
+    template<typename L, typename Pr>
     bool timed_wait(
             L& lock,
             const std::chrono::time_point<std::chrono::steady_clock>& max_blocking_time,
@@ -369,7 +371,7 @@ private:
 
             // timed_wait (infin) is used, instead wait, because wait on semaphores could throw when
             // BOOST_INTERPROCESS_ENABLE_TIMEOUT_WHEN_LOCKING is set. We don't want that for our condition_variables
-            semaphores_pool_[sem_index].sem.timed_wait(boost::posix_time::pos_infin);
+            semaphores_pool_[sem_index].sem.timed_wait(boost::posix_time::ptime(boost::posix_time::pos_infin));
         }
 
         {

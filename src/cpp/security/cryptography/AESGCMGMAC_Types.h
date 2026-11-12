@@ -19,15 +19,20 @@
 #ifndef _SECURITY_AUTHENTICATION_AESGCMGMAC_TYPES_H_
 #define _SECURITY_AUTHENTICATION_AESGCMGMAC_TYPES_H_
 
-#include <fastdds/rtps/security/cryptography/CryptoTypes.h>
-#include <fastdds/rtps/attributes/PropertyPolicy.h>
-#include <fastdds/rtps/security/common/Handle.h>
-#include <fastdds/rtps/security/common/SharedSecretHandle.h>
-#include <fastdds/rtps/security/accesscontrol/ParticipantSecurityAttributes.h>
-#include <fastdds/rtps/security/accesscontrol/EndpointSecurityAttributes.h>
-
-#include <mutex>
+#include <cassert>
+#include <deque>
+#include <functional>
 #include <limits>
+#include <mutex>
+
+#include <fastdds/rtps/attributes/PropertyPolicy.hpp>
+#include <fastdds/rtps/attributes/EndpointSecurityAttributes.hpp>
+
+#include <rtps/security/accesscontrol/ParticipantSecurityAttributes.h>
+#include <rtps/security/common/Handle.h>
+#include <rtps/security/common/SharedSecretHandle.h>
+#include <rtps/security/exceptions/SecurityException.h>
+#include <rtps/security/cryptography/CryptoTypes.h>
 
 // Fix compilation error on Windows
 #if defined(WIN32) && defined(max)
@@ -50,7 +55,7 @@
 #define CRYPTO_TRANSFORMATION_KIND_AES256_GCM       { {0, 0, 0, 4} }
 
 namespace eprosima {
-namespace fastrtps {
+namespace fastdds {
 namespace rtps {
 namespace security {
 
@@ -135,7 +140,7 @@ struct SecureDataTag
 
 struct KeySessionData
 {
-    uint32_t session_id = std::numeric_limits<uint32_t>::max();
+    uint32_t session_id = (std::numeric_limits<uint32_t>::max)();
     std::array<uint8_t, 32> SessionKey = c_empty_key_material;
     uint64_t session_block_counter = 0;
 };
@@ -144,13 +149,16 @@ struct EntityKeyHandle
 {
     static const char* const class_id_;
 
+    // Reference to an auxiliary exception object on destruction
+    SecurityException* exception_ = {nullptr};
+
     //Plugin security options
     PluginEndpointSecurityAttributesMask EndpointPluginAttributes = 0;
     //Storage for the LocalCryptoHandle master_key, not used in RemoteCryptoHandles
     KeyMaterial_AES_GCM_GMAC_Seq EntityKeyMaterial;
     //KeyId of the master_key of the parent Participant and pointer to the relevant CryptoHandle
     CryptoTransformKeyId Participant_master_key_id = c_transformKeyIdZero;
-    ParticipantCryptoHandle* Parent_participant = nullptr;
+    std::weak_ptr<ParticipantCryptoHandle> Parent_participant;
 
     //(Direct) ReceiverSpecific Keys - Inherently hold the master_key of the writer
     KeyMaterial_AES_GCM_GMAC_Seq Entity2RemoteKeyMaterial;
@@ -165,13 +173,20 @@ struct EntityKeyHandle
     std::mutex mutex_;
 };
 
-typedef HandleImpl<EntityKeyHandle> AESGCMGMAC_WriterCryptoHandle;
-typedef HandleImpl<EntityKeyHandle> AESGCMGMAC_ReaderCryptoHandle;
-typedef HandleImpl<EntityKeyHandle> AESGCMGMAC_EntityCryptoHandle;
+class AESGCMGMAC_KeyFactory;
+
+typedef HandleImpl<EntityKeyHandle, AESGCMGMAC_KeyFactory> AESGCMGMAC_WriterCryptoHandle;
+typedef HandleImpl<EntityKeyHandle, AESGCMGMAC_KeyFactory> AESGCMGMAC_ReaderCryptoHandle;
+typedef HandleImpl<EntityKeyHandle, AESGCMGMAC_KeyFactory> AESGCMGMAC_EntityCryptoHandle;
+
+static constexpr size_t KEY_MATERIAL_RING_SIZE = 8;
 
 struct ParticipantKeyHandle
 {
     static const char* const class_id_;
+
+    // Reference to an auxiliary exception object on destruction
+    SecurityException* exception_ = {nullptr};
 
     //Plugin security options
     PluginParticipantSecurityAttributesMask ParticipantPluginAttributes = 0;
@@ -181,24 +196,25 @@ struct ParticipantKeyHandle
     std::vector<KeyMaterial_AES_GCM_GMAC> Participant2ParticipantKeyMaterial;
     //Keymaterial used to Cypher CryptoTokens (inherited from the parent participant)
     std::vector<KeyMaterial_AES_GCM_GMAC> Participant2ParticipantKxKeyMaterial;
-    //(Reverse) ReceiverSpecific Keys - Inherently hold the master_key of the remote readers
     std::vector<KeyMaterial_AES_GCM_GMAC> RemoteParticipant2ParticipantKeyMaterial;
     //List of Pointers to the CryptoHandles of all matched Writers
-    std::vector<DatawriterCryptoHandle*> Writers;
+    std::vector<std::shared_ptr<DatawriterCryptoHandle>> Writers;
     //List of Pointers to the CryptoHandles of all matched Readers
-    std::vector<DatareaderCryptoHandle*> Readers;
+    std::vector<std::shared_ptr<DatareaderCryptoHandle>> Readers;
+
+    std::deque<CryptoTransformKeyId> retired_sender_key_ids;
 
     //Data used to store the current session keys and to determine when it has to be updated
     KeySessionData Session;
-    uint64_t max_blocks_per_session = 0;
+    uint64_t max_blocks_per_session = {0};
     std::mutex mutex_;
 };
 
-typedef HandleImpl<ParticipantKeyHandle> AESGCMGMAC_ParticipantCryptoHandle;
+typedef HandleImpl<ParticipantKeyHandle, AESGCMGMAC_KeyFactory> AESGCMGMAC_ParticipantCryptoHandle;
 
 } //namespaces security
 } //namespace rtps
-} //namespace fastrtps
+} //namespace fastdds
 } //namespace eprosima
 
 #endif // _SECURITY_AUTHENTICATION_AESGCMGMAC_TYPES_H_

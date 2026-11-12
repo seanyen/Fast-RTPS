@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <unordered_set>
+#include <limits>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -19,79 +22,23 @@
     FRIEND_TEST(WriterProxyTests, MissingChangesUpdate); \
     FRIEND_TEST(WriterProxyTests, LostChangesUpdate); \
     FRIEND_TEST(WriterProxyTests, ReceivedChangeSet); \
-    FRIEND_TEST(WriterProxyTests, IrrelevantChangeSet);
+    FRIEND_TEST(WriterProxyTests, IrrelevantChangeSet); \
+    FRIEND_TEST(WriterProxyTests, GapIgnoredUntilHeartbeat); \
+    FRIEND_TEST(WriterProxyTests, MaliciousHeartbeatHighSN);
 
+#include <fastdds/rtps/reader/RTPSReader.hpp>
+
+#include <rtps/builtin/data/WriterProxyData.hpp>
+#include <rtps/participant/RTPSParticipantImpl.hpp>
+#include <rtps/reader/StatefulReader.hpp>
 #include <rtps/reader/WriterProxy.h>
-#include <rtps/participant/RTPSParticipantImpl.h>
-#include <fastrtps/rtps/reader/RTPSReader.h>
-#include <fastrtps/rtps/reader/StatefulReader.h>
-#include <fastrtps/rtps/builtin/data/WriterProxyData.h>
-#include <fastrtps/rtps/resources/TimedEvent.h>
-
 #include <rtps/reader/WriterProxy.cpp>
+#include <rtps/resources/TimedEvent.h>
 
-// Make SequenceNumberSet_t compatible with GMock macros
-
-namespace testing {
-namespace internal {
-using namespace eprosima::fastrtps::rtps;
-
-template<>
-bool AnyEq::operator ()(
-        const SequenceNumberSet_t& a,
-        const SequenceNumberSet_t& b) const
-{
-    // remember that using SequenceNumberSet_t = BitmapRange<SequenceNumber_t, SequenceNumberDiff, 256>;
-    // see test\unittest\utils\BitmapRangeTests.cpp method TestResult::Check
-
-    if (a.empty() && b.empty())
-    {
-        return true;
-    }
-
-    if (a.base() == b.base())
-    {
-        uint32_t num_bits[2];
-        uint32_t num_longs[2];
-        SequenceNumberSet_t::bitmap_type bitmap[2];
-
-        a.bitmap_get(num_bits[0], bitmap[0], num_longs[0]);
-        b.bitmap_get(num_bits[1], bitmap[1], num_longs[1]);
-
-        if (num_bits[0] != num_bits[1] || num_longs[0] != num_longs[1])
-        {
-            return false;
-        }
-        return std::equal(bitmap[0].cbegin(), bitmap[0].cbegin() + num_longs[0], bitmap[1].cbegin());
-    }
-    else
-    {
-        bool equal = true;
-
-        a.for_each([&b, &equal](const SequenceNumber_t& e)
-                {
-                    equal &= b.is_set(e);
-                });
-
-        if (!equal)
-        {
-            return false;
-        }
-
-        b.for_each([&a, &equal](const SequenceNumber_t& e)
-                {
-                    equal &= a.is_set(e);
-                });
-
-        return equal;
-    }
-}
-
-} // namespace internal
-} // namespace testing
+#include "../../common/operators.hpp"
 
 namespace eprosima {
-namespace fastrtps {
+namespace fastdds {
 namespace rtps {
 
 TEST(WriterProxyTests, MissingChangesUpdate)
@@ -105,9 +52,10 @@ TEST(WriterProxyTests, MissingChangesUpdate)
     StatefulReader readerMock; // avoid annoying uninteresting call warnings
 
     // Testing the Timed events are properly configured
+    EXPECT_CALL(readerMock, getEventResource()).Times(1u);
     WriterProxy wproxy(&readerMock, RemoteLocatorsAllocationAttributes(), ResourceLimitedContainerConfig());
-    EXPECT_CALL(*wproxy.initial_acknack_, update_interval(readerMock.getTimes().initialAcknackDelay)).Times(1u);
-    EXPECT_CALL(*wproxy.heartbeat_response_, update_interval(readerMock.getTimes().heartbeatResponseDelay)).Times(1u);
+    EXPECT_CALL(*wproxy.initial_acknack_, update_interval(readerMock.getTimes().initial_acknack_delay)).Times(1u);
+    EXPECT_CALL(*wproxy.heartbeat_response_, update_interval(readerMock.getTimes().heartbeat_response_delay)).Times(1u);
     EXPECT_CALL(*wproxy.initial_acknack_, restart_timer()).Times(1u);
     wproxy.start(wattr, SequenceNumber_t());
 
@@ -121,6 +69,7 @@ TEST(WriterProxyTests, MissingChangesUpdate)
     // and lastSN.value < firstSN.value
     bool assert_liveliness = false;
     uint32_t heartbeat_count = 1;
+    int32_t current_sample_lost = 0;
     EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(1u);
     wproxy.process_heartbeat(
         heartbeat_count++,
@@ -129,7 +78,8 @@ TEST(WriterProxyTests, MissingChangesUpdate)
         false,
         false,
         false,
-        assert_liveliness );
+        assert_liveliness,
+        current_sample_lost);
 
     SequenceNumberSet_t t2 (SequenceNumber_t(0, 1));
     t2.add(SequenceNumber_t(0, 1));
@@ -137,6 +87,7 @@ TEST(WriterProxyTests, MissingChangesUpdate)
     ASSERT_EQ(SequenceNumber_t(), wproxy.available_changes_max());
     ASSERT_EQ(0u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 1)));
     ASSERT_EQ(1u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 2)));
+    ASSERT_EQ(0, current_sample_lost);
 
     // 3. Simulate reception of a HEARTBEAT after two more samples are added to the writer's history
     EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(1u);
@@ -147,7 +98,8 @@ TEST(WriterProxyTests, MissingChangesUpdate)
         false,
         false,
         false,
-        assert_liveliness);
+        assert_liveliness,
+        current_sample_lost);
 
     t2.add(SequenceNumber_t(0, 2));
     t2.add(SequenceNumber_t(0, 3));
@@ -157,6 +109,7 @@ TEST(WriterProxyTests, MissingChangesUpdate)
     ASSERT_EQ(1u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 2)));
     ASSERT_EQ(2u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 3)));
     ASSERT_EQ(3u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 4)));
+    ASSERT_EQ(0, current_sample_lost);
 
     // 4. Simulate reception of a DATA(6).
     wproxy.received_change_set(SequenceNumber_t(0, 6));
@@ -170,6 +123,7 @@ TEST(WriterProxyTests, MissingChangesUpdate)
     ASSERT_EQ(4u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 5)));
     ASSERT_EQ(5u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 6)));
     ASSERT_EQ(5u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 7)));
+    ASSERT_EQ(0, current_sample_lost);
 
     // 5. Simulate reception of a HEARTBEAT(1,6)
     EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(1u);
@@ -180,13 +134,15 @@ TEST(WriterProxyTests, MissingChangesUpdate)
         false,
         false,
         false,
-        assert_liveliness);
+        assert_liveliness,
+        current_sample_lost);
 
     ASSERT_THAT(t2, wproxy.missing_changes());
     ASSERT_EQ(SequenceNumber_t(), wproxy.available_changes_max());
     ASSERT_EQ(4u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 5)));
     ASSERT_EQ(5u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 6)));
     ASSERT_EQ(5u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 7)));
+    ASSERT_EQ(0, current_sample_lost);
 
     // 5. Simulate reception of a HEARTBEAT(1,7)
     EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(1u);
@@ -197,7 +153,8 @@ TEST(WriterProxyTests, MissingChangesUpdate)
         false,
         false,
         false,
-        assert_liveliness);
+        assert_liveliness,
+        current_sample_lost);
 
     t2.add(SequenceNumber_t(0, 7));
     ASSERT_THAT(t2, wproxy.missing_changes());
@@ -206,6 +163,7 @@ TEST(WriterProxyTests, MissingChangesUpdate)
     ASSERT_EQ(5u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 6)));
     ASSERT_EQ(5u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 7)));
     ASSERT_EQ(6u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 8)));
+    ASSERT_EQ(0, current_sample_lost);
 
     // 6. Simulate reception of all missing DATA
     wproxy.received_change_set(SequenceNumber_t(0, 1));
@@ -220,6 +178,7 @@ TEST(WriterProxyTests, MissingChangesUpdate)
     ASSERT_EQ(SequenceNumber_t(0, 6), wproxy.available_changes_max());
     ASSERT_EQ(0u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 7)));
     ASSERT_EQ(1u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 8)));
+    ASSERT_EQ(0, current_sample_lost);
 
     // 7. Simulate reception of a faulty HEARTBEAT with a lower last sequence number (4)
     EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(1u);
@@ -230,10 +189,12 @@ TEST(WriterProxyTests, MissingChangesUpdate)
         false,
         false,
         false,
-        assert_liveliness );
+        assert_liveliness,
+        current_sample_lost);
 
     ASSERT_THAT(t6, wproxy.missing_changes());
     ASSERT_EQ(SequenceNumber_t(0, 6), wproxy.available_changes_max());
+    ASSERT_EQ(0, current_sample_lost);
 
     // 8. Simulate reception of DATA(8) and DATA(10)
     wproxy.received_change_set(SequenceNumber_t(0, 8));
@@ -248,6 +209,7 @@ TEST(WriterProxyTests, MissingChangesUpdate)
     ASSERT_EQ(4u, wproxy.number_of_changes_from_writer());
     ASSERT_EQ(1u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 9)));
     ASSERT_EQ(2u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 11)));
+    ASSERT_EQ(0, current_sample_lost);
 
     // 9. Simulate reception of HEARTBEAT(1,10)
     EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(1u);
@@ -258,13 +220,30 @@ TEST(WriterProxyTests, MissingChangesUpdate)
         false,
         false,
         false,
-        assert_liveliness );
+        assert_liveliness,
+        current_sample_lost);
 
     t6.add(SequenceNumber_t(0, 6));
     t6.add(SequenceNumber_t(0, 7));
     t6.add(SequenceNumber_t(0, 9));
     ASSERT_THAT(t6, wproxy.missing_changes());
     ASSERT_EQ(SequenceNumber_t(0, 6), wproxy.available_changes_max());
+    ASSERT_EQ(0, current_sample_lost);
+
+    // 10. Simulate reception of HEARTBEAT(11,0)
+    EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(1u);
+    wproxy.process_heartbeat(
+        heartbeat_count++,
+        SequenceNumber_t( 0, 11 ),
+        SequenceNumber_t( 0, 0 ),
+        false,
+        false,
+        false,
+        assert_liveliness,
+        current_sample_lost);
+
+    ASSERT_EQ(SequenceNumber_t(0, 10), wproxy.available_changes_max());
+    ASSERT_EQ(2, current_sample_lost);
 
 }
 
@@ -272,15 +251,17 @@ TEST(WriterProxyTests, LostChangesUpdate)
 {
     WriterProxyData wattr(4u, 1u);
     StatefulReader readerMock;
+    EXPECT_CALL(readerMock, getEventResource()).Times(1u);
     WriterProxy wproxy(&readerMock, RemoteLocatorsAllocationAttributes(), ResourceLimitedContainerConfig());
-    EXPECT_CALL(*wproxy.initial_acknack_, update_interval(readerMock.getTimes().initialAcknackDelay)).Times(1u);
-    EXPECT_CALL(*wproxy.heartbeat_response_, update_interval(readerMock.getTimes().heartbeatResponseDelay)).Times(1u);
+    EXPECT_CALL(*wproxy.initial_acknack_, update_interval(readerMock.getTimes().initial_acknack_delay)).Times(1u);
+    EXPECT_CALL(*wproxy.heartbeat_response_, update_interval(readerMock.getTimes().heartbeat_response_delay)).Times(1u);
     EXPECT_CALL(*wproxy.initial_acknack_, restart_timer()).Times(1u);
     wproxy.start(wattr, SequenceNumber_t());
 
     // 1. Simulate reception of a HEARTBEAT(3,3)
     uint32_t heartbeat_count = 1;
     bool assert_liveliness = false;
+    int32_t current_sample_lost = 0;
     EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(1u);
     wproxy.process_heartbeat(
         heartbeat_count++,
@@ -289,7 +270,8 @@ TEST(WriterProxyTests, LostChangesUpdate)
         false,
         false,
         false,
-        assert_liveliness);
+        assert_liveliness,
+        current_sample_lost);
 
     SequenceNumberSet_t t1(SequenceNumber_t(0, 3));
     t1.add(SequenceNumber_t(0, 3));
@@ -297,6 +279,7 @@ TEST(WriterProxyTests, LostChangesUpdate)
     ASSERT_EQ(SequenceNumber_t(0, 2), wproxy.available_changes_max());
     ASSERT_EQ(1u, wproxy.number_of_changes_from_writer());
     ASSERT_EQ(1u, wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 4)));
+    ASSERT_EQ(0, current_sample_lost);
 
     // 2. Simulate reception of a DATA(5) follow by a HEARTBEAT(5,5)
     EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(1u);
@@ -308,12 +291,14 @@ TEST(WriterProxyTests, LostChangesUpdate)
         false,
         false,
         false,
-        assert_liveliness);
+        assert_liveliness,
+        current_sample_lost);
 
     ASSERT_THAT( SequenceNumberSet_t(SequenceNumber_t( 0, 6)), wproxy.missing_changes());
     ASSERT_EQ( SequenceNumber_t( 0, 5 ), wproxy.available_changes_max());
     ASSERT_EQ( 0u, wproxy.number_of_changes_from_writer());
     ASSERT_EQ( 0u, wproxy.unknown_missing_changes_up_to( SequenceNumber_t( 0, 5 )));
+    ASSERT_EQ(2, current_sample_lost);
 
     // 3. Simulate reception of a faulty HEARTBEAT with a lower first sequence number (4)
     EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(1u);
@@ -324,11 +309,13 @@ TEST(WriterProxyTests, LostChangesUpdate)
         false,
         false,
         false,
-        assert_liveliness);
+        assert_liveliness,
+        current_sample_lost);
 
     ASSERT_THAT(SequenceNumberSet_t( SequenceNumber_t(0, 6)), wproxy.missing_changes());
     ASSERT_EQ(SequenceNumber_t(0, 5), wproxy.available_changes_max());
     ASSERT_EQ(0u, wproxy.unknown_missing_changes_up_to( SequenceNumber_t(0, 5)));
+    ASSERT_EQ(0, current_sample_lost);
 
     // 4. Simulate reception of a DATA(7)
     // According to the RTPS standard, sequence number 5 would be missing and 6 would be unknown,
@@ -351,12 +338,14 @@ TEST(WriterProxyTests, LostChangesUpdate)
         false,
         false,
         false,
-        assert_liveliness);
+        assert_liveliness,
+        current_sample_lost);
 
     SequenceNumberSet_t t5(SequenceNumber_t(0, 8));
     t5.add(SequenceNumber_t(0, 8));
     ASSERT_THAT(t5, wproxy.missing_changes());
     ASSERT_EQ(SequenceNumber_t(0, 7), wproxy.available_changes_max());
+    ASSERT_EQ(1, current_sample_lost);
 
     // 6. Simulate reception of a HEARTBEAT(10,10)
     EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(1u);
@@ -367,18 +356,21 @@ TEST(WriterProxyTests, LostChangesUpdate)
         false,
         false,
         false,
-        assert_liveliness);
+        assert_liveliness,
+        current_sample_lost);
 
     SequenceNumberSet_t t6(SequenceNumber_t(0, 10));
     t6.add(SequenceNumber_t(0, 10));
     ASSERT_THAT(t6, wproxy.missing_changes());
     ASSERT_EQ(SequenceNumber_t(0, 9), wproxy.available_changes_max());
+    ASSERT_EQ(2, current_sample_lost);
 }
 
 TEST(WriterProxyTests, ReceivedChangeSet)
 {
     WriterProxyData wattr(4u, 1u);
     StatefulReader readerMock;
+    EXPECT_CALL(readerMock, getEventResource()).Times(1u);
     WriterProxy wproxy(&readerMock,
             RemoteLocatorsAllocationAttributes(),
             ResourceLimitedContainerConfig());
@@ -387,8 +379,8 @@ TEST(WriterProxyTests, ReceivedChangeSet)
     /// Tests that heartbeat response timed event is updated with new interval
     /// Tests that initial acknack timed event is started
 
-    EXPECT_CALL(*wproxy.initial_acknack_, update_interval(readerMock.getTimes().initialAcknackDelay)).Times(1u);
-    EXPECT_CALL(*wproxy.heartbeat_response_, update_interval(readerMock.getTimes().heartbeatResponseDelay)).Times(1u);
+    EXPECT_CALL(*wproxy.initial_acknack_, update_interval(readerMock.getTimes().initial_acknack_delay)).Times(1u);
+    EXPECT_CALL(*wproxy.heartbeat_response_, update_interval(readerMock.getTimes().heartbeat_response_delay)).Times(1u);
     EXPECT_CALL(*wproxy.initial_acknack_, restart_timer()).Times(1u);
     wproxy.start(wattr, SequenceNumber_t());
 
@@ -476,6 +468,7 @@ TEST(WriterProxyTests, ReceivedChangeSet)
     // Sequence number 6 should be RECEIVED
     bool assert_liveliness = false;
     uint32_t heartbeat_count = 1;
+    int32_t current_sample_lost = 0;
     EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(1u);
     wproxy.process_heartbeat(
         heartbeat_count++,
@@ -484,12 +477,14 @@ TEST(WriterProxyTests, ReceivedChangeSet)
         false,
         false,
         false,
-        assert_liveliness);
+        assert_liveliness,
+        current_sample_lost);
 
     ASSERT_THAT(t4, wproxy.missing_changes());
     ASSERT_EQ(wproxy.are_there_missing_changes(), true);
     ASSERT_EQ(wproxy.number_of_changes_from_writer(), 3u);
     ASSERT_EQ(wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 7)), 2u);
+    ASSERT_EQ(0, current_sample_lost);
 
     // 6. Writer proxy receives DATA with sequence number 8
     // Sequence number 4 should be MISSING
@@ -552,17 +547,43 @@ TEST(WriterProxyTests, IrrelevantChangeSet)
 {
     WriterProxyData wattr(4u, 1u);
     StatefulReader readerMock;
+    EXPECT_CALL(readerMock, getEventResource()).Times(1u);
     WriterProxy wproxy(&readerMock, RemoteLocatorsAllocationAttributes(), ResourceLimitedContainerConfig());
-    EXPECT_CALL(*wproxy.initial_acknack_, update_interval(readerMock.getTimes().initialAcknackDelay)).Times(1u);
-    EXPECT_CALL(*wproxy.heartbeat_response_, update_interval(readerMock.getTimes().heartbeatResponseDelay)).Times(1u);
+    EXPECT_CALL(*wproxy.initial_acknack_, update_interval(readerMock.getTimes().initial_acknack_delay)).Times(1u);
+    EXPECT_CALL(*wproxy.heartbeat_response_, update_interval(readerMock.getTimes().heartbeat_response_delay)).Times(1u);
     EXPECT_CALL(*wproxy.initial_acknack_, restart_timer()).Times(1u);
     wproxy.start(wattr, SequenceNumber_t());
+
+    auto test_step = [](
+        WriterProxy& wproxy,
+        const SequenceNumber_t& start,
+        const SequenceNumberSet_t& gap_list)
+            {
+                SequenceNumber_t out_start;
+                SequenceNumberSet_t out_gap_list;
+                if (wproxy.process_gap(start, gap_list, out_start, out_gap_list))
+                {
+                    EXPECT_GE(out_start, start);
+                    EXPECT_GT(out_gap_list.base(), start);
+                    EXPECT_LE(out_gap_list.base(), gap_list.base());
+                }
+            };
+
+    // A Heartbeat must precede every GAP for the reader to learn the writer's sequence number range
+    EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(::testing::AnyNumber());
+    bool assert_liveliness = false;
+    uint32_t heartbeat_count = 1;
+    int32_t current_sample_lost = 0;
+
+    // Heartbeat announcing the writer has data up to sequence number 3.
+    wproxy.process_heartbeat(heartbeat_count++, SequenceNumber_t(0, 1), SequenceNumber_t(0, 3),
+            false, false, false, assert_liveliness, current_sample_lost);
 
     // 1. Simulate reception of a GAP message for sequence number 3.
     // Sequence number 1 should be UNKNOWN
     // Sequence number 2 should be UNKNOWN
     // Sequence number 3 should be RECEIVED with is_relevant = false
-    wproxy.irrelevant_change_set(SequenceNumber_t(0, 3));
+    test_step(wproxy, SequenceNumber_t(0, 3), SequenceNumberSet_t(SequenceNumber_t(0, 4)));
 
     // According to the RTPS standard, sequence numbers 1 and 2 should be UNKNOWN,
     // but henceforth we don't differentiate between UNKNOWN and MISSING.
@@ -574,6 +595,10 @@ TEST(WriterProxyTests, IrrelevantChangeSet)
     ASSERT_EQ(wproxy.are_there_missing_changes(), true);
     ASSERT_EQ(wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 4)), 2u);
 
+    // Heartbeat announcing the writer has data up to sequence number 6.
+    wproxy.process_heartbeat(heartbeat_count++, SequenceNumber_t(0, 1), SequenceNumber_t(0, 6),
+            false, false, false, assert_liveliness, current_sample_lost);
+
     // 2. Simulate reception of a GAP message for sequence number 6.
     // Sequence number 1 should be UNKNOWN
     // Sequence number 2 should be UNKNOWN
@@ -581,7 +606,7 @@ TEST(WriterProxyTests, IrrelevantChangeSet)
     // Sequence number 4 should be UNKNOWN
     // Sequence number 5 should be UNKNOWN
     // Sequence number 6 should be RECEIVED with is_relevant = false
-    wproxy.irrelevant_change_set(SequenceNumber_t(0, 6));
+    test_step(wproxy, SequenceNumber_t(0, 6), SequenceNumberSet_t(SequenceNumber_t(0, 7)));
 
     // According to the RTPS standard, sequence numbers 1, 2, 4 and 5 should be UNKNOWN,
     // but henceforth we don't differentiate between UNKNOWN and MISSING.
@@ -600,7 +625,7 @@ TEST(WriterProxyTests, IrrelevantChangeSet)
     // Sequence number 4 should be UNKNOWN
     // Sequence number 5 should be UNKNOWN
     // Sequence number 6 should be RECEIVED with is_relevant = false
-    wproxy.irrelevant_change_set(SequenceNumber_t(0, 2));
+    test_step(wproxy, SequenceNumber_t(0, 2), SequenceNumberSet_t(SequenceNumber_t(0, 3)));
 
     // According to the RTPS standard, sequence numbers 1, 4 and 5 should be UNKNOWN,
     // but henceforth we don't differentiate between UNKNOWN and MISSING.
@@ -622,7 +647,7 @@ TEST(WriterProxyTests, IrrelevantChangeSet)
     // Sequence number 4 should be UNKNOWN
     // Sequence number 5 should be UNKNOWN
     // Sequence number 6 should be RECEIVED with is_relevant = false
-    wproxy.irrelevant_change_set(SequenceNumber_t(0, 1));
+    test_step(wproxy, SequenceNumber_t(0, 1), SequenceNumberSet_t(SequenceNumber_t(0, 2)));
 
     // According to the RTPS standard, sequence numbers 4 and 5 should be UNKNOWN,
     // but henceforth we don't differentiate between UNKNOWN and MISSING.
@@ -634,13 +659,17 @@ TEST(WriterProxyTests, IrrelevantChangeSet)
     ASSERT_EQ(wproxy.are_there_missing_changes(), true);
     ASSERT_EQ(wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 7)), 2u);
 
+    // Heartbeat announcing the writer has data up to sequence number 8.
+    wproxy.process_heartbeat(heartbeat_count++, SequenceNumber_t(0, 1), SequenceNumber_t(0, 8),
+            false, false, false, assert_liveliness, current_sample_lost);
+
     // 5. Simulate reception of a GAP message for sequence number 8.
     // Sequence number 4 should be UNKNOWN
     // Sequence number 5 should be UNKNOWN
     // Sequence number 6 should be RECEIVED with is_relevant = false
     // Sequence number 7 should be UNKNOWN
     // Sequence number 8 should be RECEIVED with is_relevant = false
-    wproxy.irrelevant_change_set(SequenceNumber_t(0, 8));
+    test_step(wproxy, SequenceNumber_t(0, 8), SequenceNumberSet_t(SequenceNumber_t(0, 9)));
 
     // According to the RTPS standard, sequence numbers 4, 5 and 7 should be UNKNOWN,
     // but henceforth we don't differentiate between UNKNOWN and MISSING.
@@ -657,7 +686,7 @@ TEST(WriterProxyTests, IrrelevantChangeSet)
     // Sequence number 6 should be RECEIVED with is_relevant = false
     // Sequence number 7 should be UNKNOWN
     // Sequence number 8 should be RECEIVED with is_relevant = false
-    wproxy.irrelevant_change_set(SequenceNumber_t(0, 4));
+    test_step(wproxy, SequenceNumber_t(0, 4), SequenceNumberSet_t(SequenceNumber_t(0, 5)));
 
     // According to the RTPS standard, sequence numbers 5 and 7 should be UNKNOWN,
     // but henceforth we don't differentiate between UNKNOWN and MISSING.
@@ -675,7 +704,7 @@ TEST(WriterProxyTests, IrrelevantChangeSet)
     // Sequence number 6 should be RECEIVED with is_relevant = false
     // Sequence number 7 should be UNKNOWN
     // Sequence number 8 should be RECEIVED with is_relevant = false
-    wproxy.irrelevant_change_set(SequenceNumber_t(0, 5));
+    test_step(wproxy, SequenceNumber_t(0, 5), SequenceNumberSet_t(SequenceNumber_t(0, 6)));
 
     // According to the RTPS standard, sequence number 7 should be UNKNOWN,
     // but henceforth we don't differentiate between UNKNOWN and MISSING.
@@ -688,16 +717,152 @@ TEST(WriterProxyTests, IrrelevantChangeSet)
 
     // 8. Simulate reception of a GAP message for sequence number 7.
     // All sequence numbers received, no changes from writer
-    wproxy.irrelevant_change_set(SequenceNumber_t(0, 7));
+    test_step(wproxy, SequenceNumber_t(0, 7), SequenceNumberSet_t(SequenceNumber_t(0, 8)));
 
     ASSERT_THAT(SequenceNumberSet_t(), wproxy.missing_changes());
     ASSERT_EQ(wproxy.number_of_changes_from_writer(), 0u);
     ASSERT_EQ(wproxy.are_there_missing_changes(), false);
     ASSERT_EQ(wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 9)), 0u);
+
+    // 9. Simulate reception of a HEARTBEAT(1,10008) after all changes have been marked as irrelevant
+    wproxy.process_heartbeat(
+        heartbeat_count++,
+        SequenceNumber_t(0, 1),
+        SequenceNumber_t(0, 10008),
+        false,
+        false,
+        false,
+        assert_liveliness,
+        current_sample_lost);
+
+    SequenceNumberSet_t t9(SequenceNumber_t(0, 9));
+    t9.add_range(SequenceNumber_t(0, 9), SequenceNumber_t(0, 10008));
+    ASSERT_THAT(t9, wproxy.missing_changes());
+    ASSERT_EQ(wproxy.number_of_changes_from_writer(), 10000u);
+    ASSERT_EQ(wproxy.are_there_missing_changes(), true);
+    ASSERT_EQ(wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 10009)), 10000u);
+
+    // From here on max_sequence_number_ == 10008 and changes_from_writer_low_mark_ == 8.
+    // GAP processing is capped to max_sequence_number_ (the last sequence announced by a Heartbeat)
+
+    // 10. GAP for 5000..5002, far above the low mark but within the announced range
+    test_step(wproxy, SequenceNumber_t(0, 5000), SequenceNumberSet_t(SequenceNumber_t(0, 5003)));
+
+    ASSERT_EQ(wproxy.number_of_changes_from_writer(), 10000u);
+    ASSERT_EQ(wproxy.are_there_missing_changes(), true);
+    ASSERT_EQ(wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 10009)), 9997u);
+    ASSERT_TRUE(wproxy.change_was_received(SequenceNumber_t(0, 5000)));
+    ASSERT_TRUE(wproxy.change_was_received(SequenceNumber_t(0, 5002)));
+    ASSERT_FALSE(wproxy.change_was_received(SequenceNumber_t(0, 5003)));
+
+    // 11. GAP for 10007..10010, partially beyond the announced max (10008).
+    // Only 10007 and 10008 are marked irrelevant. 10009 and 10010 are capped out.
+    test_step(wproxy, SequenceNumber_t(0, 10007), SequenceNumberSet_t(SequenceNumber_t(0, 10011)));
+
+    ASSERT_EQ(wproxy.number_of_changes_from_writer(), 10000u);
+    ASSERT_EQ(wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 10009)), 9995u);
+    ASSERT_TRUE(wproxy.change_was_received(SequenceNumber_t(0, 10008)));
+    ASSERT_FALSE(wproxy.change_was_received(SequenceNumber_t(0, 10009)));
+
+    // 12. GAP entirely beyond the announced max. Ignored: gap_start > max_sequence_number_.
+    test_step(wproxy, SequenceNumber_t(0, 20000), SequenceNumberSet_t(SequenceNumber_t(0, 20003)));
+
+    ASSERT_EQ(wproxy.number_of_changes_from_writer(), 10000u);
+    ASSERT_EQ(wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 10009)), 9995u);
+    ASSERT_FALSE(wproxy.change_was_received(SequenceNumber_t(0, 20000)));
+
+    // 13. A new Heartbeat raises the announced max to 20002. The same GAP is now processed.
+    wproxy.process_heartbeat(heartbeat_count++, SequenceNumber_t(0, 1), SequenceNumber_t(0, 20002),
+            false, false, false, assert_liveliness, current_sample_lost);
+    test_step(wproxy, SequenceNumber_t(0, 20000), SequenceNumberSet_t(SequenceNumber_t(0, 20003)));
+
+    ASSERT_EQ(wproxy.number_of_changes_from_writer(), 19994u);
+    ASSERT_EQ(wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 20003)), 19986u);
+    ASSERT_TRUE(wproxy.change_was_received(SequenceNumber_t(0, 20000)));
+    ASSERT_TRUE(wproxy.change_was_received(SequenceNumber_t(0, 20002)));
+
+    // 14. A contiguous GAP starting at the low mark advances it with O(1) storage and
+    // absorbs the previously stored out-of-order changes (5000..5002).
+    test_step(wproxy, SequenceNumber_t(0, 9), SequenceNumberSet_t(SequenceNumber_t(0, 5000)));
+
+    ASSERT_EQ(wproxy.number_of_changes_from_writer(), 15000u);
+    ASSERT_EQ(wproxy.are_there_missing_changes(), true);
+    ASSERT_EQ(wproxy.unknown_missing_changes_up_to(SequenceNumber_t(0, 20003)), 14995u);
+    ASSERT_TRUE(wproxy.change_was_received(SequenceNumber_t(0, 9)));
+    ASSERT_TRUE(wproxy.change_was_received(SequenceNumber_t(0, 5002)));
+}
+
+// A GAP received before any Heartbeat advances nothing (the writer's range is unknown),
+// and is fully applied once a Heartbeat announces the range
+TEST(WriterProxyTests, GapIgnoredUntilHeartbeat)
+{
+    WriterProxyData wattr(4u, 1u);
+    StatefulReader readerMock;
+    EXPECT_CALL(readerMock, getEventResource()).Times(1u);
+    WriterProxy wproxy(&readerMock, RemoteLocatorsAllocationAttributes(), ResourceLimitedContainerConfig());
+    EXPECT_CALL(*wproxy.initial_acknack_, update_interval(readerMock.getTimes().initial_acknack_delay)).Times(1u);
+    EXPECT_CALL(*wproxy.heartbeat_response_, update_interval(readerMock.getTimes().heartbeat_response_delay)).Times(1u);
+    EXPECT_CALL(*wproxy.initial_acknack_, restart_timer()).Times(1u);
+    EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(::testing::AnyNumber());
+    wproxy.start(wattr, SequenceNumber_t());
+
+    // No Heartbeat processed yet: max_sequence_number_ == low mark, so the GAP is ignored.
+    SequenceNumber_t out_seq;
+    SequenceNumberSet_t out_gap_list;
+    EXPECT_FALSE(wproxy.process_gap(SequenceNumber_t(0, 5), SequenceNumberSet_t(SequenceNumber_t(0, 20)), out_seq,
+            out_gap_list));
+    ASSERT_EQ(wproxy.available_changes_max(), SequenceNumber_t(0, 0));
+    ASSERT_FALSE(wproxy.change_was_received(SequenceNumber_t(0, 5)));
+    ASSERT_FALSE(wproxy.change_was_received(SequenceNumber_t(0, 19)));
+
+    // A Heartbeat announces the writer has data up to sequence number 30.
+    bool assert_liveliness = false;
+    int32_t current_sample_lost = 0;
+    wproxy.process_heartbeat(1u, SequenceNumber_t(0, 1), SequenceNumber_t(0, 30),
+            false, false, false, assert_liveliness, current_sample_lost);
+
+    // The same GAP is now applied, capped to the announced max (sequence 20 is excluded).
+    EXPECT_TRUE(wproxy.process_gap(SequenceNumber_t(0, 5), SequenceNumberSet_t(SequenceNumber_t(0, 20)), out_seq,
+            out_gap_list));
+    ASSERT_TRUE(wproxy.change_was_received(SequenceNumber_t(0, 5)));
+    ASSERT_TRUE(wproxy.change_was_received(SequenceNumber_t(0, 19)));
+    ASSERT_FALSE(wproxy.change_was_received(SequenceNumber_t(0, 20)));
+}
+
+/**
+ * Regression test for GHSA-6m2p-wjv5-386v: a malicious HEARTBEAT with lastSN == INT32_MAX, UINT32_MAX-1.
+ *
+ * Designed to fail even when assertions are disabled.
+ */
+TEST(WriterProxyTests, MaliciousHeartbeatHighSN)
+{
+    const SequenceNumber_t huge_SN{ std::numeric_limits<int32_t>::max(), std::numeric_limits<uint32_t>::max() - 1 };
+
+    WriterProxyData wattr(4u, 1u);
+    StatefulReader readerMock;
+    EXPECT_CALL(readerMock, getEventResource()).Times(1u);
+    WriterProxy wproxy(&readerMock, RemoteLocatorsAllocationAttributes(), ResourceLimitedContainerConfig());
+    EXPECT_CALL(*wproxy.initial_acknack_, update_interval(readerMock.getTimes().initial_acknack_delay)).Times(1u);
+    EXPECT_CALL(*wproxy.heartbeat_response_, update_interval(readerMock.getTimes().heartbeat_response_delay)).Times(1u);
+    EXPECT_CALL(*wproxy.initial_acknack_, restart_timer()).Times(1u);
+    EXPECT_CALL(*wproxy.heartbeat_response_, restart_timer()).Times(::testing::AnyNumber());
+    wproxy.start(wattr, SequenceNumber_t());
+
+    bool assert_liveliness = false;
+    int32_t current_sample_lost = 0;
+    wproxy.process_heartbeat(1u, huge_SN, huge_SN, false, false, false, assert_liveliness, current_sample_lost);
+
+    // Using a lower base for the set so its internal maximum value does not overflow.
+    SequenceNumberSet_t t1(huge_SN - 254UL);
+    t1.add(huge_SN);
+
+    EXPECT_EQ(huge_SN - 1, wproxy.available_changes_max());
+    EXPECT_TRUE(wproxy.are_there_missing_changes());
+    ASSERT_THAT(t1, wproxy.missing_changes());
 }
 
 } // namespace rtps
-} // namespace fastrtps
+} // namespace fastdds
 } // namespace eprosima
 
 int main(

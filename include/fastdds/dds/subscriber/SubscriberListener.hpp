@@ -16,14 +16,14 @@
  * @file SubscriberListener.hpp
  */
 
-#ifndef _FASTDDS_SUBLISTENER_HPP_
-#define _FASTDDS_SUBLISTENER_HPP_
+#ifndef FASTDDS_DDS_SUBSCRIBER__SUBSCRIBERLISTENER_HPP
+#define FASTDDS_DDS_SUBSCRIBER__SUBSCRIBERLISTENER_HPP
 
-#include <fastrtps/fastrtps_dll.h>
-#include <fastrtps/qos/DeadlineMissedStatus.h>
-#include <fastrtps/qos/LivelinessChangedStatus.h>
+#include <fastdds/dds/core/status/DeadlineMissedStatus.hpp>
+#include <fastdds/dds/core/status/LivelinessChangedStatus.hpp>
 #include <fastdds/dds/core/status/SubscriptionMatchedStatus.hpp>
 #include <fastdds/dds/subscriber/DataReaderListener.hpp>
+#include <fastdds/fastdds_dll.hpp>
 
 namespace eprosima {
 namespace fastdds {
@@ -34,6 +34,7 @@ class Subscriber;
 /**
  * Class SubscriberListener, it should be used by the end user to implement specific callbacks to certain actions.
  * It also inherits all DataReaderListener callbacks.
+ *
  * @ingroup FASTDDS_MODULE
  */
 class SubscriberListener : public DataReaderListener
@@ -43,23 +44,24 @@ public:
     /**
      * @brief Constructor
      */
-    RTPS_DllAPI SubscriberListener()
+    FASTDDS_EXPORTED_API SubscriberListener()
     {
     }
 
     /**
      * @brief Destructor
      */
-    RTPS_DllAPI virtual ~SubscriberListener()
+    FASTDDS_EXPORTED_API virtual ~SubscriberListener()
     {
     }
 
     /**
      * Virtual function to be implemented by the user containing the actions to be performed when a new
      * Data Message is available on any reader.
+     *
      * @param sub Subscriber
      */
-    RTPS_DllAPI virtual void on_data_on_readers(
+    FASTDDS_EXPORTED_API virtual void on_data_on_readers(
             Subscriber* sub)
     {
         (void)sub;
@@ -67,8 +69,8 @@ public:
 
 };
 
-} /* namespace dds */
-} /* namespace fastdds */
-} /* namespace eprosima */
+} // namespace dds
+} // namespace fastdds
+} // namespace eprosima
 
-#endif /* _FASTDDS_SUBLISTENER_HPP_ */
+#endif // FASTDDS_DDS_SUBSCRIBER__SUBSCRIBERLISTENER_HPP

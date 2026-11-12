@@ -17,13 +17,13 @@
  *
  */
 
-#ifndef _FASTDDS_ENTITY_HPP_
-#define _FASTDDS_ENTITY_HPP_
+#ifndef FASTDDS_DDS_CORE__ENTITY_HPP
+#define FASTDDS_DDS_CORE__ENTITY_HPP
 
+#include <fastdds/dds/common/InstanceHandle.hpp>
 #include <fastdds/dds/core/condition/StatusCondition.hpp>
+#include <fastdds/dds/core/ReturnCode.hpp>
 #include <fastdds/dds/core/status/StatusMask.hpp>
-#include <fastdds/dds/topic/TypeSupport.hpp>
-#include <fastrtps/types/TypesBase.h>
 
 namespace eprosima {
 namespace fastdds {
@@ -40,9 +40,10 @@ public:
 
     /**
      * @brief Constructor
+     *
      * @param mask StatusMask (default: all)
      */
-    RTPS_DllAPI Entity(
+    FASTDDS_EXPORTED_API Entity(
             const StatusMask& mask = StatusMask::all())
         : status_mask_(mask)
         , status_condition_(this)
@@ -52,12 +53,13 @@ public:
 
     /**
      * @brief This operation enables the Entity
+     *
      * @return RETCODE_OK
      */
-    virtual fastrtps::types::ReturnCode_t enable()
+    virtual ReturnCode_t enable()
     {
         enable_ = true;
-        return fastrtps::types::ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
     /**
@@ -70,9 +72,10 @@ public:
 
     /**
      * @brief Retrieves the set of relevant statuses for the Entity
+     *
      * @return Reference to the StatusMask with the relevant statuses set to 1
      */
-    RTPS_DllAPI const StatusMask& get_status_mask() const
+    FASTDDS_EXPORTED_API const StatusMask& get_status_mask() const
     {
         return status_mask_;
     }
@@ -91,10 +94,11 @@ public:
      *
      * @return const reference to the StatusMask with the triggered statuses set to 1
      */
-    RTPS_DllAPI const StatusMask& get_status_changes() const;
+    FASTDDS_EXPORTED_API const StatusMask& get_status_changes() const;
 
     /**
      * @brief Retrieves the instance handler that represents the Entity
+     *
      * @return Reference to the InstanceHandle
      */
     const InstanceHandle_t& get_instance_handle() const
@@ -104,14 +108,15 @@ public:
 
     /**
      * @brief Checks if the Entity is enabled
+     *
      * @return true if enabled, false if not
      */
-    RTPS_DllAPI bool is_enabled() const
+    FASTDDS_EXPORTED_API bool is_enabled() const
     {
         return enable_;
     }
 
-    RTPS_DllAPI bool operator ==(
+    FASTDDS_EXPORTED_API bool operator ==(
             const Entity& other) const
     {
         return (this->instance_handle_ == other.instance_handle_);
@@ -119,9 +124,20 @@ public:
 
     /**
      * @brief Allows access to the StatusCondition associated with the Entity
+     *
      * @return Reference to StatusCondition object
      */
-    RTPS_DllAPI StatusCondition& get_statuscondition()
+    FASTDDS_EXPORTED_API StatusCondition& get_statuscondition()
+    {
+        return status_condition_;
+    }
+
+    /**
+     * @brief Allows access to the StatusCondition associated with the Entity
+     *
+     * @return Const Reference to StatusCondition object
+     */
+    FASTDDS_EXPORTED_API const StatusCondition& get_statuscondition() const
     {
         return status_condition_;
     }
@@ -130,9 +146,10 @@ protected:
 
     /**
      * @brief Setter for the Instance Handle
+     *
      * @param handle Instance Handle
      */
-    RTPS_DllAPI void set_instance_handle(
+    FASTDDS_EXPORTED_API void set_instance_handle(
             const InstanceHandle_t& handle)
     {
         instance_handle_ = handle;
@@ -161,9 +178,10 @@ public:
 
     /**
      * @brief Constructor
+     *
      * @param mask StatusMask (default: all)
      */
-    RTPS_DllAPI DomainEntity(
+    DomainEntity(
             const StatusMask& mask = StatusMask::all())
         : Entity(mask)
     {
@@ -175,4 +193,4 @@ public:
 } // namespace fastdds
 } // namespace eprosima
 
-#endif // _FASTDDS_ENTITY_HPP_
+#endif // FASTDDS_DDS_CORE__ENTITY_HPP

@@ -21,10 +21,12 @@
 
 #include <fastdds/statistics/IListeners.hpp>
 
-#include <fastdds/publisher/DataWriterImpl.hpp>
-#include <fastdds/rtps/RTPSDomain.h>
-#include <fastdds/rtps/writer/RTPSWriter.h>
+#include <fastdds/dds/core/ReturnCode.hpp>
+#include <fastdds/rtps/RTPSDomain.hpp>
+#include <fastdds/rtps/writer/RTPSWriter.hpp>
 
+#include <fastdds/publisher/DataWriterImpl.hpp>
+#include <rtps/writer/BaseWriter.hpp>
 #include <statistics/fastdds/domain/DomainParticipantImpl.hpp>
 
 namespace eprosima {
@@ -47,9 +49,8 @@ public:
             efd::TypeSupport type,
             efd::Topic* topic,
             const efd::DataWriterQos& qos,
-            const eprosima::fastrtps::rtps::EntityId_t& entity_id)
-        : BaseType(p, type, topic, qos, nullptr)
-        , entity_id_(entity_id)
+            const eprosima::fastdds::rtps::EntityId_t& entity_id)
+        : BaseType(p, type, topic, qos, entity_id, nullptr)
     {
     }
 
@@ -59,22 +60,23 @@ public:
             efd::Topic* topic,
             const efd::DataWriterQos& qos,
             efd::DataWriterListener* listener,
+            std::shared_ptr<fastdds::rtps::IPayloadPool> payload_pool,
             std::shared_ptr<IListener> stat_listener)
-        : BaseType(p, type, topic, qos, listener)
+        : BaseType(p, type, topic, qos, listener, payload_pool)
         , statistics_listener_(stat_listener)
     {
     }
 
-    ReturnCode_t enable() override
+    efd::ReturnCode_t enable() override
     {
         if (nullptr != writer_)
         {
-            return ReturnCode_t::RETCODE_OK;
+            return efd::RETCODE_OK;
         }
 
-        ReturnCode_t ret = BaseType::enable();
+        efd::ReturnCode_t ret = BaseType::enable();
 
-        if (ReturnCode_t::RETCODE_OK == ret && statistics_listener_)
+        if (efd::RETCODE_OK == ret && statistics_listener_)
         {
             writer_->add_statistics_listener(statistics_listener_);
         }
@@ -92,27 +94,9 @@ public:
         BaseType::disable();
     }
 
-protected:
-
-    fastrtps::rtps::RTPSWriter* create_rtps_writer(
-            fastrtps::rtps::RTPSParticipant* p,
-            fastrtps::rtps::WriterAttributes& watt,
-            const std::shared_ptr<IPayloadPool>& payload_pool,
-            fastrtps::rtps::WriterHistory* hist,
-            fastrtps::rtps::WriterListener* listen) override
-    {
-        if (entity_id_.unknown() == entity_id_)
-        {
-            return BaseType::create_rtps_writer(p, watt, payload_pool, hist, listen);
-        }
-
-        return fastrtps::rtps::RTPSDomain::createRTPSWriter(p, entity_id_, watt, payload_pool, hist, listen);
-    }
-
 private:
 
     std::shared_ptr<IListener> statistics_listener_;
-    eprosima::fastrtps::rtps::EntityId_t entity_id_;
 };
 
 } // dds

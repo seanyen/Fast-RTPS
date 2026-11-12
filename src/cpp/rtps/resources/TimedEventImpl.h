@@ -22,18 +22,14 @@
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS_PUBLIC
 
-#include <fastdds/rtps/common/Time_t.h>
-#include <fastdds/rtps/resources/TimedEvent.h>
+#include <fastdds/rtps/common/Time_t.hpp>
+#include <rtps/resources/TimedEvent.h>
 
 #include <atomic>
-#include <thread>
-#include <memory>
 #include <functional>
-#include <mutex>
-#include <condition_variable>
 
 namespace eprosima {
-namespace fastrtps {
+namespace fastdds {
 namespace rtps {
 
 /*!
@@ -72,7 +68,7 @@ public:
      * @return true on success
      */
     bool update_interval(
-            const Duration_t& interval);
+            const dds::Duration_t& interval);
 
     /*!
      * @brief Updates the expiration time of the event.
@@ -91,9 +87,8 @@ public:
      */
     double getIntervalMsec()
     {
-        std::unique_lock<std::mutex> lock(mutex_);
-        auto total_milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(interval_microsec_);
-        return static_cast<double>(total_milliseconds.count());
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(interval_microsec_.load());
+        return static_cast<double>(ms.count());
     }
 
     /*!
@@ -102,11 +97,9 @@ public:
      */
     double getRemainingTimeMilliSec()
     {
-        std::unique_lock<std::mutex> lock(mutex_);
-        return static_cast<double>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                next_trigger_time_ - std::chrono::steady_clock::now()).
-            count());
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            next_trigger_time_.load() - std::chrono::steady_clock::now());
+        return static_cast<double>(ms.count());
     }
 
     /*!
@@ -115,7 +108,6 @@ public:
      */
     std::chrono::steady_clock::time_point next_trigger_time()
     {
-        std::unique_lock<std::mutex> lock(mutex_);
         return next_trigger_time_;
     }
 
@@ -154,23 +146,20 @@ public:
 private:
 
     //! Expiration time in microseconds of the event.
-    std::chrono::microseconds interval_microsec_;
+    std::atomic<std::chrono::microseconds> interval_microsec_;
 
     //! Next time this event should be triggered
-    std::chrono::steady_clock::time_point next_trigger_time_;
+    std::atomic<std::chrono::steady_clock::time_point> next_trigger_time_;
 
     //! User function to be called when this event is triggered
     Callback callback_;
 
     //! Current state of this event
     std::atomic<StateCode> state_;
-
-    //! Protects interval_microsec_ and next_trigger_time_
-    std::mutex mutex_;
 };
 
 } // namespace rtps
-} // namespace fastrtps
+} // namespace fastdds
 } // namespace eprosima
 
 #endif //DOXYGEN_SHOULD_SKIP_THIS_PUBLIC

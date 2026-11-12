@@ -16,16 +16,25 @@
  * @file PKIDH.cpp
  */
 
+// TODO This isn't a proper fix for compatibility with OpenSSL 3.0, but
+// suppresses the warnings until true OpenSSL 3.0 APIs can be used.
+#ifdef OPENSSL_API_COMPAT
+#undef OPENSSL_API_COMPAT
+#endif // ifdef OPENSSL_API_COMPAT
+#define OPENSSL_API_COMPAT 10101
+
 #include <security/authentication/PKIDH.h>
-#include <security/authentication/PKIIdentityHandle.h>
-#include <fastdds/rtps/security/logging/Logging.h>
-#include <fastdds/dds/log/Log.hpp>
-#include <fastdds/rtps/messages/CDRMessage.h>
-#include <fastdds/rtps/builtin/data/ParticipantProxyData.h>
 
 #include <openssl/opensslv.h>
 
 #include <fastdds/core/policy/ParameterList.hpp>
+#include <fastdds/dds/log/Log.hpp>
+
+#include <rtps/builtin/data/ParticipantProxyData.hpp>
+#include <rtps/resources/TimedEvent.h>
+#include <rtps/security/logging/Logging.h>
+#include <rtps/messages/CDRMessage.hpp>
+#include <security/authentication/PKIIdentityHandle.h>
 
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L
 #define IS_OPENSSL_1_1 1
@@ -45,17 +54,24 @@
 #include <openssl/err.h>
 #include <openssl/obj_mac.h>
 
+#include <security/artifact_providers/FileProvider.hpp>
+#include <security/artifact_providers/Pkcs11Provider.hpp>
+
 #include <cassert>
 #include <algorithm>
+#include <chrono>
+#include <utility>
 
 #define S1(x) #x
 #define S2(x) S1(x)
 #define LOCATION " (" __FILE__ ":" S2(__LINE__) ")"
 #define _SecurityException_(str) SecurityException(std::string(str) + LOCATION)
 
-using namespace eprosima::fastrtps;
-using namespace eprosima::fastrtps::rtps;
-using namespace eprosima::fastrtps::rtps::security;
+namespace eprosima {
+namespace fastdds {
+namespace rtps {
+
+using namespace security;
 
 using ParameterList = eprosima::fastdds::dds::ParameterList;
 
@@ -158,100 +174,13 @@ static X509_STORE* load_identity_ca(
         std::string& ca_algo,
         SecurityException& exception)
 {
-    X509_STORE* store = X509_STORE_new();
-
-    if (store != nullptr)
+    if (identity_ca.size() >= 7 && identity_ca.compare(0, 7, "file://") == 0)
     {
-        if (identity_ca.size() >= 7 && identity_ca.compare(0, 7, "file://") == 0)
-        {
-            BIO* in = BIO_new(BIO_s_file());
-
-            if (in != nullptr)
-            {
-                if (BIO_read_filename(in, identity_ca.substr(7).c_str()) > 0)
-                {
-                    STACK_OF(X509_INFO) * inf = PEM_X509_INFO_read_bio(in, NULL, NULL, NULL);
-
-                    if (inf != nullptr)
-                    {
-                        int i, count = 0;
-                        there_are_crls = false;
-
-                        for (i = 0; i < sk_X509_INFO_num(inf); i++)
-                        {
-                            X509_INFO* itmp = sk_X509_INFO_value(inf, i);
-
-                            if (itmp->x509)
-                            {
-                                // Retrieve subject name for future use.
-                                if (ca_sn.empty())
-                                {
-                                    X509_NAME* ca_subject_name = X509_get_subject_name(itmp->x509);
-                                    assert(ca_subject_name != nullptr);
-                                    char* ca_subject_name_str = X509_NAME_oneline(ca_subject_name, 0, 0);
-                                    assert(ca_subject_name_str != nullptr);
-                                    ca_sn = ca_subject_name_str;
-                                    OPENSSL_free(ca_subject_name_str);
-                                }
-
-                                // Retrieve signature algorithm
-                                if (ca_algo.empty())
-                                {
-                                    if (get_signature_algorithm(itmp->x509, ca_algo, exception))
-                                    {
-                                        X509_STORE_add_cert(store, itmp->x509);
-                                        count++;
-                                    }
-                                }
-                                else
-                                {
-                                    X509_STORE_add_cert(store, itmp->x509);
-                                    count++;
-                                }
-                            }
-                            if (itmp->crl)
-                            {
-                                X509_STORE_add_crl(store, itmp->crl);
-                                there_are_crls = true;
-                            }
-                        }
-
-                        sk_X509_INFO_pop_free(inf, X509_INFO_free);
-
-                        if (count > 0)
-                        {
-                            BIO_free(in);
-
-                            return store;
-                        }
-                    }
-                    else
-                    {
-                        exception = _SecurityException_(std::string(
-                                            "OpenSSL library cannot read X509 info in file ") + identity_ca.substr(7));
-                    }
-                }
-                else
-                {
-                    exception = _SecurityException_(std::string(
-                                        "OpenSSL library cannot read file ") + identity_ca.substr(7));
-                }
-
-                BIO_free(in);
-            }
-            else
-            {
-                exception = _SecurityException_("OpenSSL library cannot allocate file");
-            }
-        }
-
-        X509_STORE_free(store);
-    }
-    else
-    {
-        exception = _SecurityException_("Creation of X509 storage");
+        return detail::FileProvider::load_ca(identity_ca, there_are_crls, ca_sn, ca_algo, get_signature_algorithm,
+                       exception);
     }
 
+    exception = _SecurityException_(std::string("Unsupported URI format ") + identity_ca);
     return nullptr;
 }
 
@@ -259,33 +188,13 @@ static X509* load_certificate(
         const std::string& identity_cert,
         SecurityException& exception)
 {
-    X509* returnedValue = nullptr;
-
     if (identity_cert.size() >= 7 && identity_cert.compare(0, 7, "file://") == 0)
     {
-        BIO* in = BIO_new(BIO_s_file());
-
-        if (in != nullptr)
-        {
-            if (BIO_read_filename(in, identity_cert.substr(7).c_str()) > 0)
-            {
-                returnedValue = PEM_read_bio_X509_AUX(in, NULL, NULL, NULL);
-            }
-            else
-            {
-                exception =
-                        _SecurityException_(std::string("OpenSSL library cannot read file ") + identity_cert.substr(7));
-            }
-
-            BIO_free(in);
-        }
-        else
-        {
-            exception = _SecurityException_("OpenSSL library cannot allocate file");
-        }
+        return detail::FileProvider::load_certificate(identity_cert, exception);
     }
 
-    return returnedValue;
+    exception = _SecurityException_(std::string("Unsupported URI format ") + identity_cert);
+    return nullptr;
 }
 
 static X509* load_certificate(
@@ -334,11 +243,13 @@ static bool verify_certificate(
             int errorCode = X509_STORE_CTX_get_error(ctx);
             if (errorCode == X509_V_OK)
             {
-                logWarning(SECURITY_AUTHENTICATION, "Invalidation error of certificate, but no error code returned.");
+                EPROSIMA_LOG_WARNING(SECURITY_AUTHENTICATION,
+                        "Invalidation error of certificate, but no error code returned.");
             }
             else
             {
-                logWarning(SECURITY_AUTHENTICATION, "Invalidation error of certificate  (" << X509_verify_cert_error_string(
+                EPROSIMA_LOG_WARNING(SECURITY_AUTHENTICATION,
+                        "Invalidation error of certificate  (" << X509_verify_cert_error_string(
                             errorCode) << ")");
             }
         }
@@ -347,7 +258,7 @@ static bool verify_certificate(
     }
     else
     {
-        logWarning(SECURITY_AUTHENTICATION, "Cannot init context for verifying certificate");
+        EPROSIMA_LOG_WARNING(SECURITY_AUTHENTICATION, "Cannot init context for verifying certificate");
     }
 
     X509_STORE_CTX_free(ctx);
@@ -355,66 +266,34 @@ static bool verify_certificate(
     return returnedValue;
 }
 
-static int private_key_password_callback(
-        char* buf,
-        int bufsize,
-        int /*verify*/,
-        const char* password)
-{
-    assert(password != nullptr);
-
-    int returnedValue = static_cast<int>(strlen(password));
-
-    if (returnedValue > bufsize)
-    {
-        returnedValue = bufsize;
-    }
-
-    memcpy(buf, password, returnedValue);
-    return returnedValue;
-}
-
 static EVP_PKEY* load_private_key(
         X509* certificate,
         const std::string& file,
         const std::string& password,
-        SecurityException& exception)
+        SecurityException& exception,
+        PKIDH& pkidh)
 {
-    EVP_PKEY* returnedValue = nullptr;
+    EVP_PKEY* key = nullptr;
+
     if (file.size() >= 7 && file.compare(0, 7, "file://") == 0)
     {
-        BIO* in = BIO_new(BIO_s_file());
-
-        if (in != nullptr)
+        key = detail::FileProvider::load_private_key(certificate, file, password, exception);
+    }
+    else if (file.size() >= 7 && file.compare(0, 7, "pkcs11:") == 0)
+    {
+        if (!pkidh.pkcs11_provider)
         {
-            if (BIO_read_filename(in, file.substr(7).c_str()) > 0)
-            {
-                returnedValue =
-                        PEM_read_bio_PrivateKey(in, NULL, (pem_password_cb*)private_key_password_callback,
-                                (void*)password.c_str());
-
-                // Verify private key.
-                if (!X509_check_private_key(certificate, returnedValue))
-                {
-                    exception = _SecurityException_(std::string("Error verifying private key ") + file.substr(7));
-                    EVP_PKEY_free(returnedValue);
-                    returnedValue = nullptr;
-                }
-            }
-            else
-            {
-                exception = _SecurityException_(std::string("OpenSSL library cannot read file ") + file.substr(7));
-            }
-
-            BIO_free(in);
+            pkidh.pkcs11_provider.reset(new detail::Pkcs11Provider());
         }
-        else
-        {
-            exception = _SecurityException_("OpenSSL library cannot allocate file");
-        }
+
+        key = pkidh.pkcs11_provider->load_private_key(certificate, file, password, exception);
+    }
+    else
+    {
+        exception = _SecurityException_(std::string("Unsupported URI format ") + file);
     }
 
-    return returnedValue;
+    return key;
 }
 
 static bool store_certificate_in_buffer(
@@ -574,7 +453,8 @@ static bool check_sign_sha256(
                 }
                 else
                 {
-                    logWarning(SECURITY_AUTHENTICATION, "Signature verification error (" << ERR_get_error() << ")");
+                    EPROSIMA_LOG_WARNING(SECURITY_AUTHENTICATION,
+                            "Signature verification error (" << ERR_get_error() << ")");
                 }
             }
             else
@@ -613,33 +493,13 @@ static X509_CRL* load_crl(
         const std::string& identity_crl,
         SecurityException& exception)
 {
-    X509_CRL* returnedValue = nullptr;
-
     if (identity_crl.size() >= 7 && identity_crl.compare(0, 7, "file://") == 0)
     {
-        BIO* in = BIO_new(BIO_s_file());
-
-        if (in != nullptr)
-        {
-            if (BIO_read_filename(in, identity_crl.substr(7).c_str()) > 0)
-            {
-                returnedValue = PEM_read_bio_X509_CRL(in, NULL, NULL, NULL);
-            }
-            else
-            {
-                exception = _SecurityException_(std::string("OpenSSL library cannot read file ") + identity_crl.substr(
-                                    7));
-            }
-
-            BIO_free(in);
-        }
-        else
-        {
-            exception = _SecurityException_("OpenSSL library cannot allocate file");
-        }
+        return detail::FileProvider::load_crl(identity_crl, exception);
     }
 
-    return returnedValue;
+    exception = _SecurityException_(std::string("Unsupported URI format ") + identity_crl);
+    return nullptr;
 }
 
 static bool adjust_participant_key(
@@ -650,7 +510,7 @@ static bool adjust_participant_key(
 {
     assert(cert != nullptr);
 
-    X509_NAME* cert_sn = X509_get_subject_name(cert);
+    const X509_NAME* cert_sn = X509_get_subject_name(cert);
     assert(cert_sn != nullptr);
 
     unsigned char md[SHA256_DIGEST_LENGTH];
@@ -757,11 +617,21 @@ static EVP_PKEY* generate_dh_key(
         params = EVP_PKEY_new();
         if (params != nullptr)
         {
-            if (1 != EVP_PKEY_set1_DH(params, DH_get_2048_256()))
+            DH* dh = DH_get_2048_256();
+            if (dh != nullptr)
             {
-                exception = _SecurityException_("Cannot set default parameters: ");
-                EVP_PKEY_free(params);
-                return nullptr;
+#if IS_OPENSSL_1_1_1d
+                int dh_type = DH_get0_q(dh) == NULL ? EVP_PKEY_DH : EVP_PKEY_DHX;
+                if (EVP_PKEY_assign(params, dh_type, dh) <= 0)
+#else
+                if (EVP_PKEY_assign_DH(params, dh) <= 0)
+#endif // if IS_OPENSSL_1_1_1d
+                {
+                    exception = _SecurityException_("Cannot set default parameters: ");
+                    DH_free(dh);
+                    EVP_PKEY_free(params);
+                    return nullptr;
+                }
             }
         }
         else
@@ -931,6 +801,7 @@ static EVP_PKEY* generate_dh_peer_key(
                     else
                     {
                         exception = _SecurityException_("OpenSSL library cannot set dh in pkey");
+                        DH_free(dh);
                     }
 
                     EVP_PKEY_free(key);
@@ -1031,15 +902,76 @@ static bool generate_challenge(
     return returnedValue;
 }
 
-static SharedSecretHandle* generate_sharedsecret(
+/**
+ * @brief Convert a signature algortihm before adding it to an IdentityToken.
+ *
+ * This methods converts the signature algorithm to the format used in the IdentityToken.
+ * Depending on the value of the use_legacy parameter, the algorithm will be converted to the legacy format or to the
+ * one specified in the DDS-SEC 1.1 specification.
+ *
+ * @param algorithm The algorithm to convert.
+ * @param use_legacy Whether to use the legacy format or not.
+ *
+ * @return The converted algorithm.
+ */
+static std::string convert_to_token_algo(
+        const std::string& algorithm,
+        bool use_legacy)
+{
+    // Leave as internal format when legacy is used
+    if (use_legacy)
+    {
+        return algorithm;
+    }
+
+    // Convert to token format
+    if (algorithm == RSA_SHA256)
+    {
+        return RSA_SHA256_FOR_TOKENS;
+    }
+    else if (algorithm == ECDSA_SHA256)
+    {
+        return ECDSA_SHA256_FOR_TOKENS;
+    }
+
+    return algorithm;
+}
+
+/**
+ * @brief Parse a signature algorithm from an IdentityToken.
+ *
+ * This method parses the signature algorithm from an IdentityToken.
+ * It converts the algorithm to the internal (legacy) format used by the library.
+ *
+ * @param algorithm The algorithm to parse.
+ *
+ * @return The parsed algorithm.
+ */
+static std::string parse_token_algo(
+        const std::string& algorithm)
+{
+    // Convert to internal format, allowing both legacy and new formats
+    if (algorithm == RSA_SHA256_FOR_TOKENS)
+    {
+        return RSA_SHA256;
+    }
+    else if (algorithm == ECDSA_SHA256_FOR_TOKENS)
+    {
+        return ECDSA_SHA256;
+    }
+
+    return algorithm;
+}
+
+std::shared_ptr<SecretHandle> PKIDH::generate_sharedsecret(
         EVP_PKEY* private_key,
         EVP_PKEY* public_key,
-        SecurityException& exception)
+        SecurityException& exception) const
 {
     assert(private_key);
     assert(public_key);
 
-    SharedSecretHandle* handle = nullptr;
+    std::shared_ptr<SharedSecretHandle> handle;
     EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(private_key, NULL);
 
     if (ctx != nullptr)
@@ -1061,7 +993,8 @@ static SharedSecretHandle* generate_sharedsecret(
                         if (EVP_Digest(data.value().data(), length, md, NULL, EVP_sha256(), NULL))
                         {
                             data.value().assign(md, md + 32);
-                            handle = new SharedSecretHandle();
+                            handle = std::dynamic_pointer_cast<SharedSecretHandle>(
+                                get_shared_secret(SharedSecretHandle::nil_handle, exception));
                             (*handle)->data_.push_back(std::move(data));
                         }
                         else
@@ -1096,11 +1029,12 @@ static SharedSecretHandle* generate_sharedsecret(
         exception = _SecurityException_("OpenSSL library cannot allocate context");
     }
 
-    return handle;
+    return std::dynamic_pointer_cast<SecretHandle>(handle);
 }
 
 static bool generate_identity_token(
-        PKIIdentityHandle& handle)
+        PKIIdentityHandle& handle,
+        bool transmit_legacy_algorithms)
 {
     Property property;
     IdentityToken& token = handle->identity_token_;
@@ -1112,7 +1046,7 @@ static bool generate_identity_token(
     token.properties().push_back(std::move(property));
 
     property.name("dds.cert.algo");
-    property.value() = handle->sign_alg_;
+    property.value() = convert_to_token_algo(handle->sign_alg_, transmit_legacy_algorithms);
     property.propagate(true);
     token.properties().push_back(std::move(property));
 
@@ -1122,7 +1056,7 @@ static bool generate_identity_token(
     token.properties().push_back(std::move(property));
 
     property.name("dds.ca.algo");
-    property.value() = handle->algo;
+    property.value() = convert_to_token_algo(handle->algo, transmit_legacy_algorithms);
     property.propagate(true);
     token.properties().push_back(std::move(property));
 
@@ -1133,13 +1067,13 @@ ValidationResult_t PKIDH::validate_local_identity(
         IdentityHandle** local_identity_handle,
         GUID_t& adjusted_participant_key,
         const uint32_t /*domain_id*/,
-        const RTPSParticipantAttributes& participant_attr,
+        const PropertyPolicy& part_props,
         const GUID_t& candidate_participant_key,
         SecurityException& exception)
 {
     assert(local_identity_handle);
 
-    PropertyPolicy auth_properties = PropertyPolicyHelper::get_properties_with_prefix(participant_attr.properties,
+    PropertyPolicy auth_properties = PropertyPolicyHelper::get_properties_with_prefix(part_props,
                     "dds.sec.auth.builtin.PKI-DH.");
 
     if (PropertyPolicyHelper::length(auth_properties) == 0)
@@ -1147,6 +1081,13 @@ ValidationResult_t PKIDH::validate_local_identity(
         exception = _SecurityException_("Not found any dds.sec.auth.builtin.PKI-DH property");
         EMERGENCY_SECURITY_LOGGING("PKIDH", exception.what());
         return ValidationResult_t::VALIDATION_FAILED;
+    }
+
+    bool transmit_legacy_algorithms = false;
+    std::string* legacy = PropertyPolicyHelper::find_property(auth_properties, "transmit_algorithms_as_legacy");
+    if (legacy != nullptr)
+    {
+        transmit_legacy_algorithms = (*legacy == "true");
     }
 
     std::string* identity_ca = PropertyPolicyHelper::find_property(auth_properties, "identity_ca");
@@ -1186,7 +1127,38 @@ ValidationResult_t PKIDH::validate_local_identity(
         password = &empty_password;
     }
 
-    PKIIdentityHandle* ih = new PKIIdentityHandle();
+    std::string key_agreement_algorithm = "AUTO";
+    std::string* key_agreement_property =
+            PropertyPolicyHelper::find_property(auth_properties, "preferred_key_agreement");
+    if (nullptr != key_agreement_property)
+    {
+        const std::pair<std::string, std::string> key_agreement_allowed_values[] = {
+            {DH_2048_256, DH_2048_256},
+            {ECDH_prime256v1, ECDH_prime256v1},
+            {"ECDH", ECDH_prime256v1},
+            {"DH", DH_2048_256},
+            {"AUTO", "AUTO"}
+        };
+
+        key_agreement_algorithm = "";
+        for (const auto& allowed_value : key_agreement_allowed_values)
+        {
+            if (key_agreement_property->compare(allowed_value.first) == 0)
+            {
+                key_agreement_algorithm = allowed_value.second;
+                break;
+            }
+        }
+
+        if (key_agreement_algorithm.empty())
+        {
+            exception = _SecurityException_("Invalid key agreement algorithm '" + *key_agreement_property + "'");
+            EMERGENCY_SECURITY_LOGGING("PKIDH", exception.what());
+            return ValidationResult_t::VALIDATION_FAILED;
+        }
+    }
+
+    PKIIdentityHandle* ih = &PKIIdentityHandle::narrow(*get_identity_handle(exception));
 
     (*ih)->store_ = load_identity_ca(*identity_ca, (*ih)->there_are_crls_, (*ih)->sn, (*ih)->algo,
                     exception);
@@ -1194,6 +1166,20 @@ ValidationResult_t PKIDH::validate_local_identity(
     if ((*ih)->store_ != nullptr)
     {
         ERR_clear_error();
+
+        if (key_agreement_algorithm == "AUTO")
+        {
+            if ((*ih)->algo == RSA_SHA256)
+            {
+                key_agreement_algorithm = DH_2048_256;
+            }
+            else
+            {
+                key_agreement_algorithm = ECDH_prime256v1;
+            }
+        }
+
+        (*ih)->kagree_alg_ = key_agreement_algorithm;
 
         if (identity_crl != nullptr)
         {
@@ -1220,7 +1206,7 @@ ValidationResult_t PKIDH::validate_local_identity(
         if ((*ih)->cert_ != nullptr)
         {
             // Get subject name.
-            X509_NAME* cert_sn = X509_get_subject_name((*ih)->cert_);
+            const X509_NAME* cert_sn = X509_get_subject_name((*ih)->cert_);
             assert(cert_sn != nullptr);
             char* cert_sn_str = X509_NAME_oneline(cert_sn, 0, 0);
             assert(cert_sn_str != nullptr);
@@ -1232,6 +1218,14 @@ ValidationResult_t PKIDH::validate_local_identity(
             char buffer[bufsize];
             int length = BIO_read(cert_sn_rfc2253_str, buffer, bufsize);
             BIO_free(cert_sn_rfc2253_str);
+            if (length <= 0)
+            {
+                exception = _SecurityException_("Cannot print certificate subject name in RFC2253 format");
+                EMERGENCY_SECURITY_LOGGING("PKIDH", exception.what());
+                delete ih;
+                ERR_clear_error();
+                return ValidationResult_t::VALIDATION_FAILED;
+            }
             (*ih)->cert_sn_rfc2253_.assign(buffer, length);
 
 
@@ -1241,7 +1235,7 @@ ValidationResult_t PKIDH::validate_local_identity(
                 {
                     if (get_signature_algorithm((*ih)->cert_, (*ih)->sign_alg_, exception))
                     {
-                        (*ih)->pkey_ = load_private_key((*ih)->cert_, *private_key, *password, exception);
+                        (*ih)->pkey_ = load_private_key((*ih)->cert_, *private_key, *password, exception, *this);
 
                         if ((*ih)->pkey_ != nullptr)
                         {
@@ -1249,9 +1243,10 @@ ValidationResult_t PKIDH::validate_local_identity(
                                     adjusted_participant_key, exception))
                             {
                                 // Generate IdentityToken.
-                                if (generate_identity_token(*ih))
+                                if (generate_identity_token(*ih, transmit_legacy_algorithms))
                                 {
                                     (*ih)->participant_key_ = adjusted_participant_key;
+                                    arm_identity_expiry(*ih);
                                     *local_identity_handle = ih;
 
                                     return ValidationResult_t::VALIDATION_OK;
@@ -1278,7 +1273,7 @@ ValidationResult_t PKIDH::validate_remote_identity(
         const IdentityHandle& local_identity_handle,
         const IdentityToken& remote_identity_token,
         const GUID_t& remote_participant_key,
-        SecurityException& /*exception*/)
+        SecurityException& exception)
 {
     assert(remote_identity_handle);
     assert(local_identity_handle.nil() == false);
@@ -1298,11 +1293,11 @@ ValidationResult_t PKIDH::validate_remote_identity(
         // dds.cert.algo
         const std::string* cert_algo = DataHolderHelper::find_property_value(remote_identity_token, "dds.cert.algo");
 
-        PKIIdentityHandle* rih = new PKIIdentityHandle();
+        PKIIdentityHandle* rih = &PKIIdentityHandle::narrow(*get_identity_handle(exception));
 
         (*rih)->sn = ca_sn ? *ca_sn : "";
         (*rih)->cert_sn_ = ""; // cert_sn ? *cert_sn : "";
-        (*rih)->algo = cert_algo ? *cert_algo : "";
+        (*rih)->algo = cert_algo ? parse_token_algo(*cert_algo) : "";
         (*rih)->participant_key_ = remote_participant_key;
         *remote_identity_handle = rih;
 
@@ -1401,7 +1396,6 @@ ValidationResult_t PKIDH::begin_handshake_request(
     bproperty.propagate(true);
     (*handshake_handle_aux)->handshake_message_.binary_properties().push_back(std::move(bproperty));
 
-    // TODO(Ricardo) Only support right now DH+MODP-2048-256
     // c.kagree_algo.
     bproperty.name("c.kagree_algo");
     bproperty.value().assign(lih->kagree_alg_.begin(),
@@ -1500,13 +1494,20 @@ ValidationResult_t PKIDH::begin_handshake_reply(
         return ValidationResult_t::VALIDATION_FAILED;
     }
 
-    // Check incomming handshake.
+    // Check incoming handshake.
     // Check c.id
     const std::vector<uint8_t>* cid = DataHolderHelper::find_binary_property_value(handshake_message_in, "c.id");
     if (cid == nullptr)
     {
         WARNING_SECURITY_LOGGING("PKIDH", "Cannot find property c.id");
         return ValidationResult_t::VALIDATION_FAILED;
+    }
+
+    //! Release the memory in case of having an old certificate
+    if (rih->cert_ != nullptr)
+    {
+        X509_free(rih->cert_);
+        rih->cert_ = nullptr;
     }
 
     rih->cert_ = load_certificate(*cid);
@@ -1517,7 +1518,7 @@ ValidationResult_t PKIDH::begin_handshake_reply(
         return ValidationResult_t::VALIDATION_FAILED;
     }
 
-    X509_NAME* cert_sn = X509_get_subject_name(rih->cert_);
+    const X509_NAME* cert_sn = X509_get_subject_name(rih->cert_);
     assert(cert_sn != nullptr);
     char* cert_sn_str = X509_NAME_oneline(cert_sn, 0, 0);
     assert(cert_sn_str != nullptr);
@@ -1535,6 +1536,11 @@ ValidationResult_t PKIDH::begin_handshake_reply(
     char buffer[bufsize];
     int str_length = BIO_read(cert_sn_rfc2253_str, buffer, bufsize);
     BIO_free(cert_sn_rfc2253_str);
+    if (str_length <= 0)
+    {
+        WARNING_SECURITY_LOGGING("PKIDH", "Cannot print certificate subject name in RFC2253 format");
+        return ValidationResult_t::VALIDATION_FAILED;
+    }
     rih->cert_sn_rfc2253_.assign(buffer, str_length);
 
     if (!verify_certificate(lih->store_, rih->cert_, lih->there_are_crls_))
@@ -1764,7 +1770,6 @@ ValidationResult_t PKIDH::begin_handshake_reply(
     bproperty.propagate(true);
     (*handshake_handle_aux)->handshake_message_.binary_properties().push_back(std::move(bproperty));
 
-    // TODO(Ricardo) Only support right now DH+MODP-2048-256
     // c.kagree_algo.
     bproperty.name("c.kagree_algo");
     bproperty.value().assign((*handshake_handle_aux)->kagree_alg_.begin(),
@@ -1926,7 +1931,7 @@ ValidationResult_t PKIDH::process_handshake_request(
         return ValidationResult_t::VALIDATION_FAILED;
     }
 
-    // Check incomming handshake.
+    // Check incoming handshake.
     // Check c.id
     const std::vector<uint8_t>* cid = DataHolderHelper::find_binary_property_value(handshake_message_in, "c.id");
     if (cid == nullptr)
@@ -1943,7 +1948,7 @@ ValidationResult_t PKIDH::process_handshake_request(
         return ValidationResult_t::VALIDATION_FAILED;
     }
 
-    X509_NAME* cert_sn = X509_get_subject_name(rih->cert_);
+    const X509_NAME* cert_sn = X509_get_subject_name(rih->cert_);
     assert(cert_sn != nullptr);
     char* cert_sn_str = X509_NAME_oneline(cert_sn, 0, 0);
     assert(cert_sn_str != nullptr);
@@ -1960,6 +1965,11 @@ ValidationResult_t PKIDH::process_handshake_request(
     char buffer[bufsize];
     int str_length = BIO_read(cert_sn_rfc2253_str, buffer, bufsize);
     BIO_free(cert_sn_rfc2253_str);
+    if (str_length <= 0)
+    {
+        WARNING_SECURITY_LOGGING("PKIDH", "Cannot print certificate subject name in RFC2253 format");
+        return ValidationResult_t::VALIDATION_FAILED;
+    }
     rih->cert_sn_rfc2253_.assign(buffer, str_length);
 
     if (!verify_certificate(lih->store_, rih->cert_, lih->there_are_crls_))
@@ -2319,8 +2329,10 @@ ValidationResult_t PKIDH::process_handshake_request(
     {
         final_message.binary_properties().push_back(std::move(bproperty));
 
-        handshake_handle->sharedsecret_ = generate_sharedsecret(handshake_handle->dhkeys_, handshake_handle->peerkeys_,
-                        exception);
+        handshake_handle->sharedsecret_ =
+                std::dynamic_pointer_cast<SharedSecretHandle>(
+            generate_sharedsecret(handshake_handle->dhkeys_, handshake_handle->peerkeys_,
+            exception));
 
         if (handshake_handle->sharedsecret_ != nullptr)
         {
@@ -2332,6 +2344,8 @@ ValidationResult_t PKIDH::process_handshake_request(
 
             handshake_handle->handshake_message_ = std::move(final_message);
             *handshake_message_out = &handshake_handle->handshake_message_;
+
+            arm_identity_expiry(rih);
 
             return ValidationResult_t::VALIDATION_OK_WITH_FINAL_MESSAGE;
         }
@@ -2358,7 +2372,7 @@ ValidationResult_t PKIDH::process_handshake_reply(
         return ValidationResult_t::VALIDATION_FAILED;
     }
 
-    // Check incomming handshake.
+    // Check incoming handshake.
 
     // challenge1 (mandatory)
     BinaryProperty* challenge1 = DataHolderHelper::find_binary_property(handshake_message_in, "challenge1");
@@ -2514,8 +2528,10 @@ ValidationResult_t PKIDH::process_handshake_reply(
         return ValidationResult_t::VALIDATION_FAILED;
     }
 
-    handshake_handle->sharedsecret_ = generate_sharedsecret(handshake_handle->dhkeys_, handshake_handle->peerkeys_,
-                    exception);
+    handshake_handle->sharedsecret_ =
+            std::dynamic_pointer_cast<SharedSecretHandle>(
+        generate_sharedsecret(handshake_handle->dhkeys_, handshake_handle->peerkeys_,
+        exception));
 
     if (handshake_handle->sharedsecret_ != nullptr)
     {
@@ -2525,6 +2541,8 @@ ValidationResult_t PKIDH::process_handshake_reply(
         (*handshake_handle->sharedsecret_)->data_.emplace_back(SharedSecret::BinaryData("Challenge2",
                 challenge2->value()));
 
+        arm_identity_expiry(rih);
+
         return ValidationResult_t::VALIDATION_OK;
     }
 
@@ -2533,27 +2551,157 @@ ValidationResult_t PKIDH::process_handshake_reply(
     return ValidationResult_t::VALIDATION_FAILED;
 }
 
-SharedSecretHandle* PKIDH::get_shared_secret(
+std::shared_ptr<SecretHandle> PKIDH::get_shared_secret(
         const HandshakeHandle& handshake_handle,
-        SecurityException& /*exception*/)
+        SecurityException& exception) const
 {
     const PKIHandshakeHandle& handshake = PKIHandshakeHandle::narrow(handshake_handle);
 
     if (!handshake.nil())
     {
-        SharedSecretHandle* sharedsecret = new SharedSecretHandle();
-        (*sharedsecret)->data_ = (*handshake->sharedsecret_)->data_;
-        return sharedsecret;
+        auto secret = get_shared_secret(SharedSecretHandle::nil_handle, exception);
+        auto sharedsecret = std::dynamic_pointer_cast<SharedSecretHandle>(secret);
+
+        if (sharedsecret)
+        {
+            (*sharedsecret)->data_ = (*handshake->sharedsecret_)->data_;
+        }
+        return secret;
     }
 
-    return nullptr;
+    // create ad hoc deleter because this object can only be created/release from the friend factory
+    auto p = new (std::nothrow) SharedSecretHandle;
+    return std::dynamic_pointer_cast<SecretHandle>(
+        std::shared_ptr<SharedSecretHandle>(p, [](SharedSecretHandle* p)
+        {
+            delete p;
+        }));
 }
 
 bool PKIDH::set_listener(
-        AuthenticationListener* /*listener*/,
+        AuthenticationListener* listener,
         SecurityException& /*exception*/)
 {
-    return false;
+    std::lock_guard<std::mutex> lock(listener_mtx_);
+    listener_ = listener;
+    return true;
+}
+
+std::chrono::system_clock::time_point PKIDH::cert_expiration(
+        const X509* cert)
+{
+    if (cert == nullptr)
+    {
+        return std::chrono::system_clock::time_point{};
+    }
+
+    const ASN1_TIME* not_after = X509_get0_notAfter(cert);
+    if (not_after == nullptr)
+    {
+        return std::chrono::system_clock::time_point{};
+    }
+
+    std::tm t{};
+    if (ASN1_TIME_to_tm(not_after, &t) != 1)
+    {
+        return std::chrono::system_clock::time_point{};
+    }
+
+#ifdef _WIN32
+    return std::chrono::system_clock::from_time_t(_mkgmtime(&t));
+#else
+    return std::chrono::system_clock::from_time_t(timegm(&t));
+#endif // _WIN32
+}
+
+std::chrono::system_clock::time_point PKIDH::get_identity_expiration(
+        const IdentityHandle& handle) const
+{
+    const PKIIdentityHandle& ihandle = PKIIdentityHandle::narrow(handle);
+    if (ihandle.nil())
+    {
+        return std::chrono::system_clock::time_point{};
+    }
+    return cert_expiration((*ihandle)->cert_);
+}
+
+void PKIDH::set_event_resource(
+        eprosima::fastdds::rtps::ResourceEvent& service)
+{
+    event_resource_ = &service;
+}
+
+void PKIDH::drain_expired_timers()
+{
+    std::vector<std::unique_ptr<eprosima::fastdds::rtps::TimedEvent>> reaped;
+    {
+        std::lock_guard<std::mutex> lock(expired_timers_mtx_);
+        reaped.swap(expired_timers_);
+    }
+    // Destroyed here, outside any timer callback.
+}
+
+void PKIDH::arm_identity_expiry(
+        PKIIdentityHandle& handle)
+{
+    drain_expired_timers();
+
+    if (event_resource_ == nullptr || handle.nil() || (*handle)->cert_ == nullptr)
+    {
+        return;
+    }
+
+    const auto expiry = cert_expiration((*handle)->cert_);
+    if (expiry == std::chrono::system_clock::time_point{})
+    {
+        return;
+    }
+
+    const auto now = std::chrono::system_clock::now();
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(expiry - now).count();
+
+    // Already-expired certs (e.g. clock skew) fire ASAP from the event thread, never
+    // inline. TimedEvent stores the interval as int64 microseconds, so even decade-long
+    // validities are well within range; no upper clamp is needed.
+    const double interval_ms = (ms <= 0) ? 1.0 : static_cast<double>(ms);
+
+    PKIIdentityHandle* ihandle = &handle;
+    (*handle)->expiry_event_.reset(new eprosima::fastdds::rtps::TimedEvent(
+                *event_resource_,
+                [this, ihandle]() -> bool
+                {
+                    // Move our own timer out of the handle BEFORE notifying, so that
+                    // on_revoke_identity returning the handle does not destroy the
+                    // TimedEvent currently firing (use-after-free).
+                    {
+                        std::lock_guard<std::mutex> g(expired_timers_mtx_);
+                        if ((*ihandle)->expiry_event_)
+                        {
+                            expired_timers_.push_back(std::move((*ihandle)->expiry_event_));
+                        }
+                    }
+
+                    std::lock_guard<std::mutex> l(listener_mtx_);
+                    if (listener_ != nullptr)
+                    {
+                        SecurityException ex;
+                        listener_->on_revoke_identity(*this, *ihandle, ex);
+                    }
+                    return false;   // one-shot
+                },
+                interval_ms));
+    (*handle)->expiry_event_->restart_timer();
+}
+
+GUID_t PKIDH::get_participant_guid(
+        const IdentityHandle& handle) const
+{
+    const PKIIdentityHandle& ihandle = PKIIdentityHandle::narrow(handle);
+    if (ihandle.nil())
+    {
+        return GUID_t::unknown();
+    }
+    return (*ihandle)->participant_key_;
 }
 
 bool PKIDH::get_identity_token(
@@ -2595,6 +2743,12 @@ bool PKIDH::return_handshake_handle(
     return false;
 }
 
+IdentityHandle* PKIDH::get_identity_handle(
+        SecurityException&)
+{
+    return new (std::nothrow) PKIIdentityHandle();
+}
+
 bool PKIDH::return_identity_handle(
         IdentityHandle* identity_handle,
         SecurityException& /*exception*/)
@@ -2611,10 +2765,10 @@ bool PKIDH::return_identity_handle(
 }
 
 bool PKIDH::return_sharedsecret_handle(
-        SharedSecretHandle* sharedsecret_handle,
-        SecurityException& /*exception*/)
+        std::shared_ptr<SecretHandle>& sharedsecret_handle,
+        SecurityException& /*exception*/) const
 {
-    delete sharedsecret_handle;
+    sharedsecret_handle.reset();
     return true;
 }
 
@@ -2667,3 +2821,41 @@ bool PKIDH::return_authenticated_peer_credential_token(
     delete token;
     return true;
 }
+
+bool PKIDH::check_guid_comes_from(
+        IdentityHandle* identity_handle,
+        const GUID_t& adjusted,
+        const GUID_t& original)
+{
+    SecurityException exception;
+
+    if (identity_handle != nullptr)
+    {
+        PKIIdentityHandle* pkiih = &PKIIdentityHandle::narrow(*identity_handle);
+        GUID_t adjusted_original_guid;
+
+        if (pkiih != nullptr && !(*pkiih).nil() && (*pkiih)->cert_ != nullptr)
+        {
+            adjust_participant_key((*pkiih)->cert_, original, adjusted_original_guid, exception);
+            return adjusted == adjusted_original_guid;
+        }
+        else
+        {
+            exception = _SecurityException_("Invalid PKI Identity handle or Invalid Certificate");
+            EMERGENCY_SECURITY_LOGGING("PKIDH", exception.what());
+        }
+
+    }
+    else
+    {
+        exception = _SecurityException_("Invalid Identity handle");
+        EMERGENCY_SECURITY_LOGGING("PKIDH", exception.what());
+    }
+
+    return adjusted == original;
+
+}
+
+} // namespace rtps
+} // namespace fastdds
+} // namespace eprosima

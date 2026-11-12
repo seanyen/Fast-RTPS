@@ -19,6 +19,9 @@ import logging
 import os
 import subprocess
 import sys
+import time
+
+SLEEP_TAG = "--sleep_before_exec"
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 seed = str(os.getpid())
@@ -47,7 +50,7 @@ def define_args(tests_definition):
 
         if 'kind' not in test.keys():
             print('ARGUMENT ERROR : '
-                  'Test definition requites <kind> field for each participant')
+                  'Test definition requires <kind> field for each participant')
             continue
 
         # All processes has seed argument
@@ -56,7 +59,14 @@ def define_args(tests_definition):
         possible_arguments = ['samples',
                               'wait',
                               'magic',
-                              'publishers']
+                              'publishers',
+                              'sleep_before_exec',
+                              'interval',
+                              'timeout',
+                              'rescan',
+                              'seed']
+        # Note that arg 'seed' is automatically set, but we can override it by
+        # passing the arg again. This is useful if we need to determine a specific domain
 
         for argument in possible_arguments:
             if argument in test.keys():
@@ -67,7 +77,8 @@ def define_args(tests_definition):
         possible_flags = ['exit_on_lost_liveliness',
                           'zero_copy',
                           'fixed_type',
-                          'notexit']
+                          'notexit',
+                          'succeed_on_timeout']
 
         for flag in possible_flags:
             if flag in test.keys():
@@ -158,26 +169,81 @@ def define_commands(pub_args, sub_args, pubsub_args):
     )
 
 
+def execute_command(command):
+    """Execute command after possibly waiting some time."""
+    sleep_tag = '--sleep_before_exec'
+    if sleep_tag in command:
+        time.sleep(int(command.pop(command.index(sleep_tag) + 1)))
+        command.remove(sleep_tag)
+    return subprocess.Popen(command)
+
+
+class ScheduledCmd:
+    def __init__(self, when, kind, cmd):
+        self.when = when
+        self.kind = kind
+        self.cmd = cmd
+
+
+def _extract_sleep(command: list[str]) -> tuple[list[str], int]:
+    """Return (cleaned_command, sleep_seconds)."""
+    if SLEEP_TAG not in command:
+        return command, 0
+
+    cmd = list(command)
+    i = cmd.index(SLEEP_TAG)
+    try:
+        sleep_s = int(cmd[i + 1])
+    except (IndexError, ValueError):
+        raise ValueError(f"{SLEEP_TAG} must be followed by an integer seconds value: {command}")
+
+    # remove tag and value
+    del cmd[i:i+2]
+    return cmd, sleep_s
+
+
 def execute_commands(pub_commands, sub_commands, pubsub_commands, logger):
     """Get test definitions in command lists and execute each process."""
+    # Manually program execution of subprocess
+    now = time.monotonic()
+    scheduled: list[ScheduledCmd] = []
+
+    for subscriber_command in sub_commands:
+        logger.info(f'Executing subcriber: {subscriber_command}')
+        cmd, s = _extract_sleep(subscriber_command)
+        scheduled.append(ScheduledCmd(when=now + s, kind="sub", cmd=cmd))
+
+    for pubsub_command in pubsub_commands:
+        logger.info(f'Executing pubsub: {pubsub_command}')
+        cmd, s = _extract_sleep(pubsub_command)
+        scheduled.append(ScheduledCmd(when=now + s, kind="pubsub", cmd=cmd))
+
+    for publisher_command in pub_commands:
+        logger.info(f'Executing publisher: {publisher_command}')
+        cmd, s = _extract_sleep(publisher_command)
+        scheduled.append(ScheduledCmd(when=now + s, kind="pub", cmd=cmd))
+
+    # Sort scheduled subprocesses
+    scheduled.sort(key=lambda x: x.when)
     pubs_proc = []
     subs_proc = []
     pubsubs_proc = []
 
-    for subscriber_command in sub_commands:
-        logger.info(f'Executing subcriber: {subscriber_command}')
-        proc = subprocess.Popen(subscriber_command)
-        subs_proc.append(proc)
+    # Execution of subprocess with scheduling
+    for item in scheduled:
+        delay = item.when - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
 
-    for pubsub_command in pubsub_commands:
-        logger.info(f'Executing pubsub: {pubsub_command}')
-        proc = subprocess.Popen(pubsub_command)
-        pubsubs_proc.append(proc)
+        logger.info(f"Executing {item.kind}: {item.cmd}")
+        p = subprocess.Popen(item.cmd)
 
-    for publisher_command in pub_commands:
-        logger.info(f'Executing publisher: {publisher_command}')
-        proc = subprocess.Popen(publisher_command)
-        pubs_proc.append(proc)
+        if item.kind == "sub":
+            subs_proc.append(p)
+        elif item.kind == "pubsub":
+            pubsubs_proc.append(p)
+        else:
+            pubs_proc.append(p)
 
     ret_value = 0
 
@@ -211,7 +277,7 @@ if __name__ == '__main__':
 
     test_definitions = test_definition(args[0])
 
-    logger.error(test_definition)
+    logger.error(test_definitions)
 
     pub_args, sub_args, pubsub_args = define_args(test_definitions)
 

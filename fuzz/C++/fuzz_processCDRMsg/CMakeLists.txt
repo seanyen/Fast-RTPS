@@ -1,26 +1,23 @@
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.22) # TODO 3.28
 
-if(NOT CMAKE_VERSION VERSION_LESS 3.0)
-    cmake_policy(SET CMP0048 NEW)
-endif()
-
-project(fuzz_processCDRMsg)
+project(fuzz_processCDRMsg VERSION 1 LANGUAGES CXX)
 
 # Find requirements
 if(NOT fastcdr_FOUND)
-    find_package(fastcdr REQUIRED)
+    find_package(fastcdr 2 REQUIRED)
 endif()
 
 if(NOT foonathan_memory_FOUND)
     find_package(foonathan_memory REQUIRED)
 endif()
 
-if(NOT fastrtps_FOUND)
-    find_package(fastrtps REQUIRED)
+if(NOT fastdds_FOUND)
+    find_package(fastdds 3 REQUIRED)
 endif()
 
 message(STATUS "Configuring fuzz_processCDRMsg...")
 file(GLOB SOURCES_CXX "fuzz_*.cxx")
 
 add_executable(fuzz_processCDRMsg ${SOURCES_CXX})
-target_link_libraries(fuzz_processCDRMsg fastrtps fastcdr foonathan_memory $ENV{LIB_FUZZING_ENGINE})
+target_include_directories(fuzz_processCDRMsg PRIVATE ${CMAKE_SOURCE_DIR}/src/cpp/rtps/messages)
+target_link_libraries(fuzz_processCDRMsg fastdds fastcdr foonathan_memory $ENV{LIB_FUZZING_ENGINE})

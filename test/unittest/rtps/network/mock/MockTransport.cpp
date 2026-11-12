@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <MockTransport.h>
 #include <algorithm>
-#include <cstring>
+#include <vector>
 
-using namespace std;
+#include <MockTransport.h>
 
-namespace eprosima{
-namespace fastrtps{
-namespace rtps{
+namespace eprosima {
+namespace fastdds {
+namespace rtps {
 
 std::vector<MockTransport*> MockTransport::mockTransportInstances;
 
-MockTransport::MockTransport(const MockTransportDescriptor& descriptor)
+MockTransport::MockTransport(
+        const MockTransportDescriptor& descriptor)
     : TransportInterface(descriptor.supportedKind)
     , mockMaximumChannels(descriptor.maximumChannels)
 {
@@ -42,33 +42,45 @@ MockTransport::~MockTransport()
 {
     // Remove this mock from the handle vector
     mockTransportInstances.erase(std::remove(mockTransportInstances.begin(),
-                                       mockTransportInstances.end(),
-                                       this),
-                                mockTransportInstances.end());
+            mockTransportInstances.end(),
+            this),
+            mockTransportInstances.end());
 }
 
-bool MockTransport::init()
+bool MockTransport::init(
+        const fastdds::rtps::PropertyPolicy* /*properties*/,
+        const uint32_t& /*max_msg_size_no_frag*/)
 {
     return true;
 }
 
-bool MockTransport::IsInputChannelOpen(const Locator_t& locator) const
+bool MockTransport::IsInputChannelOpen(
+        const Locator_t& locator) const
 {
-    return (find(mockOpenInputChannels.begin(), mockOpenInputChannels.end(), locator.port) != mockOpenInputChannels.end());
+    return (find(mockOpenInputChannels.begin(), mockOpenInputChannels.end(),
+           locator.port) != mockOpenInputChannels.end());
 }
 
-bool MockTransport::IsLocatorSupported(const Locator_t& locator) const
+bool MockTransport::IsLocatorSupported(
+        const Locator_t& locator) const
 {
     return locator.kind == transport_kind_;
 }
 
-bool MockTransport::is_locator_allowed(const Locator_t& /*locator*/) const
+bool MockTransport::is_locator_allowed(
+        const Locator_t& /*locator*/) const
+{
+    return true;
+}
+
+bool MockTransport::is_locator_reachable(
+        const Locator_t& /*locator*/)
 {
     return true;
 }
 
 bool MockTransport::OpenOutputChannel(
-        SendResourceList& send_resource_list,
+        fastdds::rtps::SendResourceList& send_resource_list,
         const Locator_t& locator)
 {
     if (!IsLocatorSupported(locator))
@@ -91,7 +103,8 @@ bool MockTransport::OpenOutputChannel(
 
 bool MockTransport::OpenInputChannel(
         const Locator_t& locator,
-        TransportReceiverInterface*, uint32_t)
+        fastdds::rtps::TransportReceiverInterface*,
+        uint32_t)
 {
     mockOpenInputChannels.push_back(locator.port);
     return true;
@@ -104,36 +117,39 @@ bool MockTransport::DoInputLocatorsMatch(
     return left.port == right.port;
 }
 
-Locator_t MockTransport::RemoteToMainLocal(const Locator_t& remote) const
+Locator_t MockTransport::RemoteToMainLocal(
+        const Locator_t& remote) const
 {
     Locator_t mainLocal(remote);
-    //memset(mainLocal.address, 0x00, sizeof(mainLocal.address));
     mainLocal.set_Invalid_Address();
     return mainLocal;
 }
 
-bool MockTransport::CloseInputChannel(const Locator_t& locator)
+bool MockTransport::CloseInputChannel(
+        const Locator_t& locator)
 {
-   mockOpenInputChannels.erase(std::remove(mockOpenInputChannels.begin(),
-                                      mockOpenInputChannels.end(),
-                                      locator.port),
-                                mockOpenInputChannels.end());
-   return true;
+    mockOpenInputChannels.erase(std::remove(mockOpenInputChannels.begin(),
+            mockOpenInputChannels.end(),
+            locator.port),
+            mockOpenInputChannels.end());
+    return true;
 }
 
-LocatorList_t MockTransport::NormalizeLocator(const Locator_t& locator)
+LocatorList_t MockTransport::NormalizeLocator(
+        const Locator_t& locator)
 {
     LocatorList_t list;
     list.push_back(locator);
     return list;
 }
 
-void MockTransport::select_locators(LocatorSelector& selector) const
+void MockTransport::select_locators(
+        fastdds::rtps::LocatorSelector& selector) const
 {
-    ResourceLimitedVector<LocatorSelectorEntry*>& entries = selector.transport_starts();
+    fastdds::ResourceLimitedVector<fastdds::rtps::LocatorSelectorEntry*>& entries = selector.transport_starts();
     for (size_t i = 0; i < entries.size(); ++i)
     {
-        LocatorSelectorEntry* entry = entries[i];
+        fastdds::rtps::LocatorSelectorEntry* entry = entries[i];
         if (entry->transport_should_process)
         {
             for (size_t j = 0; j < entry->unicast.size(); ++j)
@@ -147,5 +163,5 @@ void MockTransport::select_locators(LocatorSelector& selector) const
 }
 
 } // namespace rtps
-} // namespace fastrtps
+} // namespace fastdds
 } // namespace eprosima

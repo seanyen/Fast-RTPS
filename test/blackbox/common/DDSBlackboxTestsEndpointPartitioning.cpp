@@ -18,7 +18,7 @@
 #include "PubSubReader.hpp"
 #include "PubSubWriter.hpp"
 
-using namespace eprosima::fastrtps;
+using namespace eprosima::fastdds;
 
 /**
  * This test checks that DataWriter/DataReaders match with each other one to one when the partition
@@ -27,17 +27,17 @@ using namespace eprosima::fastrtps;
  */
 TEST(EndpointPartitioning, SinglePartition)
 {
-    PubSubWriter<HelloWorldType> writer_a(TEST_TOPIC_NAME);
-    PubSubReader<HelloWorldType> reader_a(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer_a(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader_a(TEST_TOPIC_NAME);
 
     // Positive test. Same partition. Match
 
-    writer_a.set_xml_filename("partitions.xml");
+    writer_a.set_xml_filename("partitions_profile.xml");
     writer_a.set_datawriter_profile("partition_a_writer");
     writer_a.init();
     EXPECT_TRUE(writer_a.isInitialized());
 
-    reader_a.set_xml_filename("partitions.xml");
+    reader_a.set_xml_filename("partitions_profile.xml");
     reader_a.set_datareader_profile("partition_a_reader");
     reader_a.init();
     EXPECT_TRUE(reader_a.isInitialized());
@@ -50,8 +50,8 @@ TEST(EndpointPartitioning, SinglePartition)
 
     // Negative test. Partition differs. No match.
 
-    PubSubReader<HelloWorldType> reader_b(TEST_TOPIC_NAME);
-    reader_b.set_xml_filename("partitions.xml");
+    PubSubReader<HelloWorldPubSubType> reader_b(TEST_TOPIC_NAME);
+    reader_b.set_xml_filename("partitions_profile.xml");
     reader_b.set_datareader_profile("partition_b_reader");
     reader_b.init();
     EXPECT_TRUE(reader_b.isInitialized());
@@ -61,7 +61,7 @@ TEST(EndpointPartitioning, SinglePartition)
 
     // Partition interaction between DataWriter and Subscriber Qos. Match
 
-    PubSubReader<HelloWorldType> reader_a_from_subscriber(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader_a_from_subscriber(TEST_TOPIC_NAME);
     reader_a_from_subscriber.partition("partition_a");
     reader_a_from_subscriber.init();
 
@@ -72,7 +72,7 @@ TEST(EndpointPartitioning, SinglePartition)
 
     // Partition interaction between Publisher and DataReader Qos. Match
 
-    PubSubWriter<HelloWorldType> writer_b_from_publisher(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer_b_from_publisher(TEST_TOPIC_NAME);
     writer_b_from_publisher.partition("partition_b");
     writer_b_from_publisher.init();
 
@@ -97,10 +97,10 @@ TEST(EndpointPartitioning, SinglePartition)
 TEST(EndpointPartitioning, QosOverride)
 {
     // Partition configuration overriding. Endpoint configuration must take precedence.
-    PubSubWriter<HelloWorldType> writer_a_qos_override(TEST_TOPIC_NAME);
-    PubSubReader<HelloWorldType> reader_b_qos_override(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer_a_qos_override(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader_b_qos_override(TEST_TOPIC_NAME);
 
-    writer_a_qos_override.set_xml_filename("partitions.xml");
+    writer_a_qos_override.set_xml_filename("partitions_profile.xml");
     writer_a_qos_override.set_datawriter_profile("partition_a_writer");
 
     // We change the PublisherQos so the partition matches. DataWriter partition stays the same (partition_a)
@@ -108,7 +108,7 @@ TEST(EndpointPartitioning, QosOverride)
     writer_a_qos_override.init();
     EXPECT_TRUE(writer_a_qos_override.isInitialized());
 
-    reader_b_qos_override.set_xml_filename("partitions.xml");
+    reader_b_qos_override.set_xml_filename("partitions_profile.xml");
     reader_b_qos_override.set_datareader_profile("partition_b_reader");
     reader_b_qos_override.init();
     EXPECT_TRUE(reader_b_qos_override.isInitialized());
@@ -123,16 +123,16 @@ TEST(EndpointPartitioning, QosOverride)
     reader_b_qos_override.destroy();
 
     // Same test but trying to override DataReader configuration
-    PubSubWriter<HelloWorldType> writer_b_qos_override(TEST_TOPIC_NAME);
-    PubSubReader<HelloWorldType> reader_a_qos_override(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer_b_qos_override(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader_a_qos_override(TEST_TOPIC_NAME);
 
-    writer_b_qos_override.set_xml_filename("partitions.xml");
+    writer_b_qos_override.set_xml_filename("partitions_profile.xml");
     writer_b_qos_override.set_datawriter_profile("partition_b_writer");
     writer_b_qos_override.partition("partition_a");
     writer_b_qos_override.init();
     EXPECT_TRUE(writer_b_qos_override.isInitialized());
 
-    reader_a_qos_override.set_xml_filename("partitions.xml");
+    reader_a_qos_override.set_xml_filename("partitions_profile.xml");
     reader_a_qos_override.set_datareader_profile("partition_a_reader");
     reader_a_qos_override.init();
     EXPECT_TRUE(reader_a_qos_override.isInitialized());
@@ -154,21 +154,21 @@ TEST(EndpointPartitioning, QosOverride)
 TEST(EndpointPartitioning, MultiplePartitions)
 {
     // Multiple partition test
-    PubSubReader<HelloWorldType> reader_a(TEST_TOPIC_NAME);
-    PubSubReader<HelloWorldType> reader_b(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer_a_b(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader_a(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader_b(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer_a_b(TEST_TOPIC_NAME);
 
-    writer_a_b.set_xml_filename("partitions.xml");
+    writer_a_b.set_xml_filename("partitions_profile.xml");
     writer_a_b.set_datawriter_profile("partition_a_b_writer");
     writer_a_b.init();
     EXPECT_TRUE(writer_a_b.isInitialized());
 
-    reader_a.set_xml_filename("partitions.xml");
+    reader_a.set_xml_filename("partitions_profile.xml");
     reader_a.set_datareader_profile("partition_a_reader");
     reader_a.init();
     EXPECT_TRUE(reader_a.isInitialized());
 
-    reader_b.set_xml_filename("partitions.xml");
+    reader_b.set_xml_filename("partitions_profile.xml");
     reader_b.set_datareader_profile("partition_b_reader");
     reader_b.init();
     EXPECT_TRUE(reader_b.isInitialized());
@@ -185,21 +185,21 @@ TEST(EndpointPartitioning, MultiplePartitions)
     reader_a.destroy();
     reader_b.destroy();
 
-    PubSubWriter<HelloWorldType> writer_a(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer_b(TEST_TOPIC_NAME);
-    PubSubReader<HelloWorldType> reader_a_b(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer_a(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer_b(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader_a_b(TEST_TOPIC_NAME);
 
-    writer_a.set_xml_filename("partitions.xml");
+    writer_a.set_xml_filename("partitions_profile.xml");
     writer_a.set_datawriter_profile("partition_a_writer");
     writer_a.init();
     EXPECT_TRUE(writer_a.isInitialized());
 
-    writer_b.set_xml_filename("partitions.xml");
+    writer_b.set_xml_filename("partitions_profile.xml");
     writer_b.set_datawriter_profile("partition_b_writer");
     writer_b.init();
     EXPECT_TRUE(writer_b.isInitialized());
 
-    reader_a_b.set_xml_filename("partitions.xml");
+    reader_a_b.set_xml_filename("partitions_profile.xml");
     reader_a_b.set_datareader_profile("partition_a_b_reader");
     reader_a_b.init();
     EXPECT_TRUE(reader_a_b.isInitialized());
@@ -218,9 +218,9 @@ TEST(EndpointPartitioning, MultiplePartitions)
  */
 TEST(EndpointPartitioning, PropertyQos)
 {
-    PubSubWriter<HelloWorldType> writer_a(TEST_TOPIC_NAME);
-    PubSubReader<HelloWorldType> reader_a(TEST_TOPIC_NAME);
-    PubSubReader<HelloWorldType> reader_b(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer_a(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader_a(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader_b(TEST_TOPIC_NAME);
 
     eprosima::fastdds::dds::PropertyPolicyQos writer_a_policy;
     writer_a_policy.properties().emplace_back("partitions", "partition_b");
@@ -228,12 +228,12 @@ TEST(EndpointPartitioning, PropertyQos)
     writer_a.init();
     EXPECT_TRUE(writer_a.isInitialized());
 
-    reader_a.set_xml_filename("partitions.xml");
+    reader_a.set_xml_filename("partitions_profile.xml");
     reader_a.set_datareader_profile("partition_a_reader");
     reader_a.init();
     EXPECT_TRUE(reader_a.isInitialized());
 
-    reader_b.set_xml_filename("partitions.xml");
+    reader_b.set_xml_filename("partitions_profile.xml");
     reader_b.set_datareader_profile("partition_b_reader");
     reader_b.init();
     EXPECT_TRUE(reader_b.isInitialized());

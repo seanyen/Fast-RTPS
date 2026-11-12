@@ -12,28 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "BlackboxTests.hpp"
+#include <gtest/gtest.h>
 
+#include <fastdds/dds/domain/DomainParticipantFactory.hpp>
+#include <fastdds/LibrarySettings.hpp>
+#include <fastdds/rtps/common/CDRMessage_t.hpp>
+#include <fastdds/rtps/transport/test_UDPv4TransportDescriptor.hpp>
+#include <fastdds/dds/domain/qos/RequesterQos.hpp>
+
+#include "BlackboxTests.hpp"
 #include "PubSubReader.hpp"
 #include "PubSubWriter.hpp"
-#include "ReqRepAsReliableHelloWorldRequester.hpp"
-#include "ReqRepAsReliableHelloWorldReplier.hpp"
 
-#include <gtest/gtest.h>
-#include <fastrtps/xmlparser/XMLProfileManager.h>
-#include <fastdds/rtps/common/CDRMessage_t.h>
-#include <rtps/transport/test_UDPv4Transport.h>
+using namespace eprosima::fastdds;
 
-using namespace eprosima::fastrtps;
-using test_UDPv4Transport = eprosima::fastdds::rtps::test_UDPv4Transport;
-using test_UDPv4TransportDescriptor = eprosima::fastdds::rtps::test_UDPv4TransportDescriptor;
-
+namespace {
 enum communication_type
 {
     TRANSPORT,
     INTRAPROCESS,
     DATASHARING
 };
+}  // namespace
 
 class Volatile : public testing::TestWithParam<communication_type>
 {
@@ -41,12 +41,13 @@ public:
 
     void SetUp() override
     {
-        LibrarySettingsAttributes library_settings;
+        eprosima::fastdds::LibrarySettings library_settings;
         switch (GetParam())
         {
             case INTRAPROCESS:
-                library_settings.intraprocess_delivery = IntraprocessDeliveryType::INTRAPROCESS_FULL;
-                xmlparser::XMLProfileManager::library_settings(library_settings);
+                library_settings.intraprocess_delivery = eprosima::fastdds::IntraprocessDeliveryType::INTRAPROCESS_FULL;
+                eprosima::fastdds::dds::DomainParticipantFactory::get_instance()->set_library_settings(
+                    library_settings);
                 break;
             case DATASHARING:
                 enable_datasharing = true;
@@ -59,12 +60,13 @@ public:
 
     void TearDown() override
     {
-        LibrarySettingsAttributes library_settings;
+        eprosima::fastdds::LibrarySettings library_settings;
         switch (GetParam())
         {
             case INTRAPROCESS:
-                library_settings.intraprocess_delivery = IntraprocessDeliveryType::INTRAPROCESS_OFF;
-                xmlparser::XMLProfileManager::library_settings(library_settings);
+                library_settings.intraprocess_delivery = eprosima::fastdds::IntraprocessDeliveryType::INTRAPROCESS_OFF;
+                eprosima::fastdds::dds::DomainParticipantFactory::get_instance()->set_library_settings(
+                    library_settings);
                 break;
             case DATASHARING:
                 enable_datasharing = false;
@@ -80,10 +82,10 @@ public:
 // Test created to check bug #3020 (Github ros2/demos #238)
 TEST_P(Volatile, PubSubAsReliableVolatilePubRemoveWithoutSubs)
 {
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     writer.history_depth(10).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).init();
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).init();
 
     ASSERT_TRUE(writer.isInitialized());
 
@@ -101,17 +103,17 @@ TEST_P(Volatile, PubSubAsReliableVolatilePubRemoveWithoutSubs)
 // Test created to check bug #3087 (Github #230)
 TEST_P(Volatile, AsyncPubSubAsNonReliableVolatileHelloworld)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     reader.init();
 
     ASSERT_TRUE(reader.isInitialized());
 
     writer.history_depth(100).
-            reliability(eprosima::fastrtps::BEST_EFFORT_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
-            asynchronously(eprosima::fastrtps::ASYNCHRONOUS_PUBLISH_MODE).init();
+            reliability(eprosima::fastdds::dds::BEST_EFFORT_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
+            asynchronously(eprosima::fastdds::dds::ASYNCHRONOUS_PUBLISH_MODE).init();
 
     ASSERT_TRUE(writer.isInitialized());
 
@@ -133,11 +135,11 @@ TEST_P(Volatile, AsyncPubSubAsNonReliableVolatileHelloworld)
 // Test created to check bug #3290 (ROS2 #539)
 TEST_P(Volatile, AsyncVolatileKeepAllPubReliableSubNonReliable300Kb)
 {
-    PubSubReader<Data1mbType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<Data1mbType> writer(TEST_TOPIC_NAME);
+    PubSubReader<Data1mbPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<Data1mbPubSubType> writer(TEST_TOPIC_NAME);
 
-    reader.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::BEST_EFFORT_RELIABILITY_QOS).
+    reader.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::BEST_EFFORT_RELIABILITY_QOS).
             init();
 
     ASSERT_TRUE(reader.isInitialized());
@@ -147,13 +149,13 @@ TEST_P(Volatile, AsyncVolatileKeepAllPubReliableSubNonReliable300Kb)
     uint32_t bytesPerPeriod = 65536;
     uint32_t periodInMs = 50;
 
-    writer.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
+    writer.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
             resource_limits_allocated_samples(9).
             resource_limits_max_samples(9).
-            asynchronously(eprosima::fastrtps::ASYNCHRONOUS_PUBLISH_MODE).
-            add_throughput_controller_descriptor_to_pparams(
+            asynchronously(eprosima::fastdds::dds::ASYNCHRONOUS_PUBLISH_MODE).
+            add_flow_controller_descriptor_to_pparams(
         eprosima::fastdds::rtps::FlowControllerSchedulerPolicy::FIFO, bytesPerPeriod, periodInMs).
             init();
 
@@ -177,18 +179,18 @@ TEST_P(Volatile, AsyncVolatileKeepAllPubReliableSubNonReliable300Kb)
 // Test created to check bug #3290 (ROS2 #539)
 TEST_P(Volatile, VolatileKeepAllPubReliableSubNonReliableHelloWorld)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
-    reader.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::BEST_EFFORT_RELIABILITY_QOS).
+    reader.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::BEST_EFFORT_RELIABILITY_QOS).
             init();
 
     ASSERT_TRUE(reader.isInitialized());
 
-    writer.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
+    writer.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
             resource_limits_allocated_samples(9).
             resource_limits_max_samples(9).
             init();
@@ -213,21 +215,21 @@ TEST_P(Volatile, VolatileKeepAllPubReliableSubNonReliableHelloWorld)
 // Test created to check bug #3290 (ROS2 #539)
 TEST_P(Volatile, AsyncVolatileKeepAllPubReliableSubNonReliableHelloWorld)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
-    reader.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::BEST_EFFORT_RELIABILITY_QOS).
+    reader.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::BEST_EFFORT_RELIABILITY_QOS).
             init();
 
     ASSERT_TRUE(reader.isInitialized());
 
-    writer.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
+    writer.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
             resource_limits_allocated_samples(9).
             resource_limits_max_samples(9).
-            asynchronously(eprosima::fastrtps::ASYNCHRONOUS_PUBLISH_MODE).
+            asynchronously(eprosima::fastdds::dds::ASYNCHRONOUS_PUBLISH_MODE).
             init();
 
     ASSERT_TRUE(writer.isInitialized());
@@ -247,30 +249,18 @@ TEST_P(Volatile, AsyncVolatileKeepAllPubReliableSubNonReliableHelloWorld)
     reader.block_for_at_least(2);
 }
 
-// Regression test of Refs #3376, github ros2/rmw_fastrtps #226
-TEST_P(Volatile, ReqRepVolatileHelloworldRequesterCheckWriteParams)
-{
-    ReqRepAsReliableHelloWorldRequester requester;
-
-    requester.durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).init();
-
-    ASSERT_TRUE(requester.isInitialized());
-
-    requester.send(1);
-}
-
 // Test created to check bug #5423, github ros2/ros2 #703
 TEST_P(Volatile, AsyncVolatileSubBetweenPubs)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
-    writer.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
+    writer.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
             resource_limits_allocated_samples(9).
             resource_limits_max_samples(9).
-            asynchronously(eprosima::fastrtps::ASYNCHRONOUS_PUBLISH_MODE).
+            asynchronously(eprosima::fastdds::dds::ASYNCHRONOUS_PUBLISH_MODE).
             heartbeat_period_seconds(3600).
             init();
 
@@ -282,9 +272,9 @@ TEST_P(Volatile, AsyncVolatileSubBetweenPubs)
 
     writer.send_sample(hello);
 
-    reader.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
+    reader.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
             init();
 
     ASSERT_TRUE(reader.isInitialized());
@@ -304,15 +294,15 @@ TEST_P(Volatile, AsyncVolatileSubBetweenPubs)
 
 TEST_P(Volatile, VolatileSubBetweenPubs)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
-    writer.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
+    writer.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
             resource_limits_allocated_samples(9).
             resource_limits_max_samples(9).
-            asynchronously(eprosima::fastrtps::SYNCHRONOUS_PUBLISH_MODE).
+            asynchronously(eprosima::fastdds::dds::SYNCHRONOUS_PUBLISH_MODE).
             heartbeat_period_seconds(3600).
             init();
 
@@ -324,9 +314,9 @@ TEST_P(Volatile, VolatileSubBetweenPubs)
 
     writer.send_sample(hello);
 
-    reader.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
+    reader.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
             init();
 
     ASSERT_TRUE(reader.isInitialized());
@@ -346,16 +336,16 @@ TEST_P(Volatile, VolatileSubBetweenPubs)
 
 TEST_P(Volatile, AsyncVolatileSubBetweenTransientPubs)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     writer
-            .history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS)
-            .reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS)
-            .durability_kind(eprosima::fastrtps::TRANSIENT_LOCAL_DURABILITY_QOS)
+            .history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS)
+            .reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS)
+            .durability_kind(eprosima::fastdds::dds::TRANSIENT_LOCAL_DURABILITY_QOS)
             .resource_limits_allocated_samples(9)
             .resource_limits_max_samples(9)
-            .asynchronously(eprosima::fastrtps::ASYNCHRONOUS_PUBLISH_MODE)
+            .asynchronously(eprosima::fastdds::dds::ASYNCHRONOUS_PUBLISH_MODE)
             .heartbeat_period_seconds(3600)
             .init();
 
@@ -367,9 +357,9 @@ TEST_P(Volatile, AsyncVolatileSubBetweenTransientPubs)
 
     writer.send_sample(hello);
 
-    reader.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
+    reader.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
             init();
 
     ASSERT_TRUE(reader.isInitialized());
@@ -389,16 +379,16 @@ TEST_P(Volatile, AsyncVolatileSubBetweenTransientPubs)
 
 TEST_P(Volatile, VolatileSubBetweenTransientPubs)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     writer
-            .history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS)
-            .reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS)
-            .durability_kind(eprosima::fastrtps::TRANSIENT_LOCAL_DURABILITY_QOS)
+            .history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS)
+            .reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS)
+            .durability_kind(eprosima::fastdds::dds::TRANSIENT_LOCAL_DURABILITY_QOS)
             .resource_limits_allocated_samples(9)
             .resource_limits_max_samples(9)
-            .asynchronously(eprosima::fastrtps::SYNCHRONOUS_PUBLISH_MODE)
+            .asynchronously(eprosima::fastdds::dds::SYNCHRONOUS_PUBLISH_MODE)
             .heartbeat_period_seconds(3600)
             .init();
 
@@ -410,9 +400,9 @@ TEST_P(Volatile, VolatileSubBetweenTransientPubs)
 
     writer.send_sample(hello);
 
-    reader.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
+    reader.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
             init();
 
     ASSERT_TRUE(reader.isInitialized());
@@ -432,22 +422,22 @@ TEST_P(Volatile, VolatileSubBetweenTransientPubs)
 
 TEST_P(Volatile, VolatileLateJoinerSubGapLost)
 {
-    PubSubReader<HelloWorldType> reader1(TEST_TOPIC_NAME);
-    PubSubReader<HelloWorldType> reader2(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader1(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader2(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
 
-    reader1.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
-            //heartbeatResponseDelay(5,0).
+    reader1.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
+            //heartbeat_response_delay(5,0).
             init();
 
     ASSERT_TRUE(reader1.isInitialized());
 
     // To simulate lossy conditions
     int gaps_to_drop = 2;
-    auto testTransport = std::make_shared<test_UDPv4TransportDescriptor>();
+    auto testTransport = std::make_shared<eprosima::fastdds::rtps::test_UDPv4TransportDescriptor>();
     testTransport->drop_gap_messages_filter_ = [&gaps_to_drop](rtps::CDRMessage_t& )
             {
                 if (gaps_to_drop > 0)
@@ -459,14 +449,14 @@ TEST_P(Volatile, VolatileLateJoinerSubGapLost)
             };
     testTransport->dropLogLength = 1;
 
-    writer.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
+    writer.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
             resource_limits_allocated_samples(9).
             resource_limits_max_samples(9).
             disable_builtin_transport().
             add_user_transport_to_pparams(testTransport).
-            asynchronously(eprosima::fastrtps::SYNCHRONOUS_PUBLISH_MODE).
+            asynchronously(eprosima::fastdds::dds::SYNCHRONOUS_PUBLISH_MODE).
             init();
 
     ASSERT_TRUE(writer.isInitialized());
@@ -482,9 +472,9 @@ TEST_P(Volatile, VolatileLateJoinerSubGapLost)
     writer.send_sample(data.front());
     data.pop_front();
 
-    reader2.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
+    reader2.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
             init();
 
     ASSERT_TRUE(reader2.isInitialized());
@@ -506,12 +496,12 @@ TEST_P(Volatile, VolatileLateJoinerSubGapLost)
 // Regression test for redmine bug #11306
 TEST_P(Volatile, VolatileWithLostAcks)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
-    writer.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
+    writer.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
             resource_limits_allocated_samples(10).
             resource_limits_max_samples(10).
             init();
@@ -520,7 +510,7 @@ TEST_P(Volatile, VolatileWithLostAcks)
 
     // To simulate lossy conditions
     size_t acks_to_drop = 0;
-    auto testTransport = std::make_shared<test_UDPv4TransportDescriptor>();
+    auto testTransport = std::make_shared<eprosima::fastdds::rtps::test_UDPv4TransportDescriptor>();
     testTransport->drop_ack_nack_messages_filter_ = [&acks_to_drop](rtps::CDRMessage_t&)
             {
                 if (acks_to_drop > 0)
@@ -531,9 +521,9 @@ TEST_P(Volatile, VolatileWithLostAcks)
                 return false;
             };
 
-    reader.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            durability_kind(eprosima::fastrtps::VOLATILE_DURABILITY_QOS).
+    reader.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).
             resource_limits_allocated_samples(10).
             resource_limits_max_samples(10).
             disable_builtin_transport().

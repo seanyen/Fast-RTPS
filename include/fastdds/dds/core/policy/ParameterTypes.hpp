@@ -16,34 +16,46 @@
  * @file ParameterTypes.hpp
  */
 
-#ifndef _FASTDDS_DDS_QOS_PARAMETERTYPES_HPP_
-#define _FASTDDS_DDS_QOS_PARAMETERTYPES_HPP_
+#ifndef FASTDDS_DDS_CORE_POLICY__PARAMETERTYPES_HPP
+#define FASTDDS_DDS_CORE_POLICY__PARAMETERTYPES_HPP
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS_PUBLIC
 
-#include <fastdds/rtps/common/all_common.h>
-#include <fastdds/rtps/common/Token.h>
-#include <fastdds/rtps/messages/CDRMessage.h>
-
-#include <fastrtps/utils/fixed_size_string.hpp>
-
-#if HAVE_SECURITY
-#include <fastdds/rtps/security/accesscontrol/ParticipantSecurityAttributes.h>
-#include <fastdds/rtps/security/accesscontrol/EndpointSecurityAttributes.h>
-#endif // if HAVE_SECURITY
-
+#include <atomic>
 #include <string>
 #include <vector>
 
-namespace eprosima {
+#include <fastcdr/cdr/fixed_size_string.hpp>
 
-namespace fastrtps {
+#include <fastdds/dds/core/Types.hpp>
+#include <fastdds/rtps/common/InstanceHandle.hpp>
+#include <fastdds/rtps/common/Locator.hpp>
+#include <fastdds/rtps/common/OriginalWriterInfo.hpp>
+#include <fastdds/rtps/common/ProductVersion_t.hpp>
+#include <fastdds/rtps/common/SampleIdentity.hpp>
+#include <fastdds/rtps/common/SerializedPayload.hpp>
+#include <fastdds/rtps/common/Time_t.hpp>
+#include <fastdds/rtps/common/Token.hpp>
+
+#if HAVE_SECURITY
+#include <fastdds/rtps/attributes/EndpointSecurityAttributes.hpp>
+#endif // if HAVE_SECURITY
+
+namespace eprosima {
+namespace fastdds {
 namespace rtps {
 struct CDRMessage_t;
+#if HAVE_SECURITY
+namespace security {
+struct ParticipantSecurityAttributes;
+typedef uint32_t PluginEndpointSecurityAttributesMask;
+typedef uint32_t EndpointSecurityAttributesMask;
+typedef uint32_t PluginParticipantSecurityAttributesMask;
+typedef uint32_t ParticipantSecurityAttributesMask;
+} // namespace security
+#endif  // HAVE_SECURITY
 } // namespace rtps
-} // namespace fastrtps
 
-namespace fastdds {
 namespace dds {
 
 /**
@@ -56,80 +68,136 @@ namespace dds {
  */
 enum ParameterId_t : uint16_t
 {
-    PID_PAD = 0x0000,
-    PID_SENTINEL = 0x0001,
-    PID_USER_DATA = 0x002c,
-    PID_TOPIC_NAME = 0x0005,
-    PID_TYPE_NAME = 0x0007,
-    PID_GROUP_DATA =0x002d,
-    PID_TOPIC_DATA =0x002e,
-    PID_DURABILITY =0x001d,
-    PID_DURABILITY_SERVICE =0x001e,
-    PID_DEADLINE =0x0023,
-    PID_LATENCY_BUDGET =0x0027,
-    PID_LIVELINESS =0x001b,
-    PID_RELIABILITY =0x001A,
-    PID_LIFESPAN =0x002b,
-    PID_DESTINATION_ORDER =0x0025,
-    PID_HISTORY =0x0040,
-    PID_RESOURCE_LIMITS =0x0041,
-    PID_OWNERSHIP =0x001f,
-    PID_OWNERSHIP_STRENGTH =0x0006,
-    PID_PRESENTATION =0x0021,
-    PID_PARTITION =0x0029,
-    PID_TIME_BASED_FILTER =0x0004,
-    PID_TRANSPORT_PRIORITY =0x0049,
-    PID_PROTOCOL_VERSION = 0x0015,
-    PID_VENDORID = 0x0016,
-    PID_UNICAST_LOCATOR = 0x002f,
-    PID_MULTICAST_LOCATOR = 0x0030,
-    PID_MULTICAST_IPADDRESS =0x0011,
-    PID_DEFAULT_UNICAST_LOCATOR = 0x0031,
-    PID_DEFAULT_MULTICAST_LOCATOR = 0x0048,
-    PID_METATRAFFIC_UNICAST_LOCATOR = 0x0032,
-    PID_METATRAFFIC_MULTICAST_LOCATOR = 0x0033,
-    PID_DEFAULT_UNICAST_IPADDRESS =0x000c,
-    PID_DEFAULT_UNICAST_PORT = 0x000e,
-    PID_METATRAFFIC_UNICAST_IPADDRESS =0x0045,
-    PID_METATRAFFIC_UNICAST_PORT = 0x000d,
-    PID_METATRAFFIC_MULTICAST_IPADDRESS =0x000b,
-    PID_METATRAFFIC_MULTICAST_PORT = 0x0046,
-    PID_EXPECTS_INLINE_QOS =0x0043,
-    PID_PARTICIPANT_MANUAL_LIVELINESS_COUNT =0x0034,
-    PID_PARTICIPANT_BUILTIN_ENDPOINTS = 0x0044,
-    PID_PARTICIPANT_LEASE_DURATION = 0x0002,
-    PID_CONTENT_FILTER_PROPERTY =0x0035,
-    PID_PARTICIPANT_GUID = 0x0050,
-    PID_PARTICIPANT_ENTITYID =0x0051,
-    PID_GROUP_GUID =0x0052,
-    PID_GROUP_ENTITYID =0x0053,
-    PID_BUILTIN_ENDPOINT_SET = 0x0058,
-    PID_PROPERTY_LIST = 0x0059,
-    PID_TYPE_MAX_SIZE_SERIALIZED =0x0060,
-    PID_ENTITY_NAME = 0x0062,
-    PID_TYPE_IDV1 = 0x0069,
-    PID_KEY_HASH = 0x0070,
-    PID_STATUS_INFO = 0x0071,
-    PID_TYPE_OBJECTV1 = 0x0072,
-    PID_ENDPOINT_GUID = 0x005a,
-    //PID_RELATED_SAMPLE_IDENTITY = 0x0083
-    PID_IDENTITY_TOKEN = 0x1001,
-    PID_PERMISSIONS_TOKEN = 0x1002,
-    PID_DATA_TAGS = 0x1003,
-    PID_ENDPOINT_SECURITY_INFO = 0x1004,
-    PID_PARTICIPANT_SECURITY_INFO = 0x1005,
-    PID_IDENTITY_STATUS_TOKEN = 0x1006,
-    PID_PERSISTENCE_GUID = 0x8002,
-    PID_RELATED_SAMPLE_IDENTITY = 0x800f,
-    PID_DATA_REPRESENTATION = 0x0073,
-    PID_TYPE_CONSISTENCY_ENFORCEMENT = 0x0074,
-    PID_TYPE_INFORMATION = 0x0075,
-    PID_DISABLE_POSITIVE_ACKS = 0x8005,
-    PID_DATASHARING = 0x8006,
+    /* From Table 9.18 of DDS-RTPS 2.5 */
+    PID_PAD                                 = 0x0000,
+    PID_SENTINEL                            = 0x0001,
+    PID_USER_DATA                           = 0x002c,
+    PID_TOPIC_NAME                          = 0x0005,
+    PID_TYPE_NAME                           = 0x0007,
+    PID_GROUP_DATA                          = 0x002d,
+    PID_TOPIC_DATA                          = 0x002e,
+    PID_DURABILITY                          = 0x001d,
+    PID_DURABILITY_SERVICE                  = 0x001e,
+    PID_DEADLINE                            = 0x0023,
+    PID_LATENCY_BUDGET                      = 0x0027,
+    PID_LIVELINESS                          = 0x001b,
+    PID_RELIABILITY                         = 0x001a,
+    PID_LIFESPAN                            = 0x002b,
+    PID_DESTINATION_ORDER                   = 0x0025,
+    PID_HISTORY                             = 0x0040,
+    PID_RESOURCE_LIMITS                     = 0x0041,
+    PID_OWNERSHIP                           = 0x001f,
+    PID_OWNERSHIP_STRENGTH                  = 0x0006,
+    PID_PRESENTATION                        = 0x0021,
+    PID_PARTITION                           = 0x0029,
+    PID_TIME_BASED_FILTER                   = 0x0004,
+    PID_TRANSPORT_PRIORITY                  = 0x0049,
+    PID_DOMAIN_ID                           = 0x000f,
+    PID_DOMAIN_TAG                          = 0x4014,
+    PID_PROTOCOL_VERSION                    = 0x0015,
+    PID_VENDORID                            = 0x0016,
+    PID_UNICAST_LOCATOR                     = 0x002f,
+    PID_MULTICAST_LOCATOR                   = 0x0030,
+    PID_DEFAULT_UNICAST_LOCATOR             = 0x0031,
+    PID_DEFAULT_MULTICAST_LOCATOR           = 0x0048,
+    PID_METATRAFFIC_UNICAST_LOCATOR         = 0x0032,
+    PID_METATRAFFIC_MULTICAST_LOCATOR       = 0x0033,
+    PID_EXPECTS_INLINE_QOS                  = 0x0043,
+    PID_PARTICIPANT_MANUAL_LIVELINESS_COUNT = 0x0034,
+    PID_PARTICIPANT_LEASE_DURATION          = 0x0002,
+    PID_CONTENT_FILTER_PROPERTY             = 0x0035,
+    PID_PARTICIPANT_GUID                    = 0x0050,
+    PID_GROUP_GUID                          = 0x0052,
+    PID_GROUP_ENTITYID                      = 0x0053,
+    PID_BUILTIN_ENDPOINT_SET                = 0x0058,
+    PID_BUILTIN_ENDPOINT_QOS                = 0x0077,
+    PID_PROPERTY_LIST                       = 0x0059,
+    PID_TYPE_MAX_SIZE_SERIALIZED            = 0x0060,
+    PID_ENTITY_NAME                         = 0x0062,
+    PID_ENDPOINT_GUID                       = 0x005a,
+
+    /* From table 9.20 of DDS-RTPS 2.5 - inline QoS only */
+    PID_CONTENT_FILTER_INFO                 = 0x0055,
+    PID_COHERENT_SET                        = 0x0056,
+    PID_DIRECTED_WRITE                      = 0x0057,
+    PID_ORIGINAL_WRITER_INFO                = 0x0061,
+    PID_GROUP_COHERENT_SET                  = 0x0063,
+    PID_GROUP_SEQ_NUM                       = 0x0064,
+    PID_WRITER_GROUP_INFO                   = 0x0065,
+    PID_SECURE_WRITER_GROUP_INFO            = 0x0066,
+    PID_KEY_HASH                            = 0x0070,
+    PID_STATUS_INFO                         = 0x0071,
+
+    /* Deprecated */
+    // PID_MULTICAST_IPADDRESS             = 0x0011,
+    // PID_DEFAULT_UNICAST_IPADDRESS       = 0x000c,
+    // PID_DEFAULT_UNICAST_PORT            = 0x000e,
+    // PID_METATRAFFIC_UNICAST_IPADDRESS   = 0x0045,
+    // PID_METATRAFFIC_UNICAST_PORT        = 0x000d,
+    // PID_METATRAFFIC_MULTICAST_IPADDRESS = 0x000b,
+    // PID_METATRAFFIC_MULTICAST_PORT      = 0x0046,
+    // PID_PARTICIPANT_BUILTIN_ENDPOINTS   = 0x0044,
+    // PID_PARTICIPANT_ENTITYID            = 0x0051,
+
+    /* From DDS-XTYPES 1.3 */
+    PID_TYPE_IDV1                           = 0x0069,
+    PID_TYPE_OBJECTV1                       = 0x0072,
+    PID_DATA_REPRESENTATION                 = 0x0073,
+    PID_TYPE_CONSISTENCY_ENFORCEMENT        = 0x0074,
+    PID_TYPE_INFORMATION                    = 0x0075,
+
+    /* From table 10 of DDS-SEC 1.1 */
+    PID_IDENTITY_TOKEN                      = 0x1001,
+    PID_PERMISSIONS_TOKEN                   = 0x1002,
+    PID_PARTICIPANT_SECURITY_INFO           = 0x1005,
+
+    /* From table 12 of DDS-SEC 1.1 */
+    PID_ENDPOINT_SECURITY_INFO              = 0x1004,
+
+    /* From table 13 of DDS-SEC 1.1 */
+    PID_IDENTITY_STATUS_TOKEN               = 0x1006,
+
+    /* From table 14 of DDS-SEC 1.1 */
+    PID_DATA_TAGS                           = 0x1003,
+
+    /* From Remote Procedure Call over DDS, document "ptc/2016-03-19" V1.0 */
+    PID_SERVICE_INSTANCE_NAME               = 0x0080,
+    PID_RELATED_ENTITY_GUID                 = 0x0081,
+    PID_TOPIC_ALIASES                       = 0x0082,
+    PID_RELATED_SAMPLE_IDENTITY             = 0x0083,
+
+    /* eProsima Fast DDS extensions */
+    PID_PRODUCT_VERSION                     = 0x8000,
+    PID_PERSISTENCE_GUID                    = 0x8002,
+    PID_MACHINE_ID                          = 0x8003,
+    PID_DISABLE_POSITIVE_ACKS               = 0x8005,
+    PID_DATASHARING                         = 0x8006,
+    PID_NETWORK_CONFIGURATION_SET           = 0x8007,
+    PID_CUSTOM_RELATED_SAMPLE_IDENTITY      = 0x800f,
+    PID_RTPS_ENDPOINT                       = 0x8010,
+    /* Writer specific */
+    PID_WRITER_DATA_LIFECYCLE               = 0x8100,
+    PID_PUBLISH_MODE                        = 0x8101,
+    PID_RTPS_RELIABLE_WRITER                = 0x8102,
+    PID_WRITER_RESOURCE_LIMITS              = 0x8103,
+    /* Reader specific */
+    PID_READER_DATA_LIFECYCLE               = 0x8200,
+    PID_RTPS_RELIABLE_READER                = 0x8201,
+    PID_READER_RESOURCE_LIMITS              = 0x8202,
+    /* Participant specific */
+    PID_WIREPROTOCOL_CONFIG                 = 0x8300,
+    /* RPC specific */
+    PID_RPC_MORE_REPLIES                    = 0x8400,
+
+    /* eProsima Safe DDS extensions */
+    PID_SAFE_DDS_SIGNATURE                  = 0x9000,
 };
 
-//!Base Parameter class with parameter PID and parameter length in bytes.
-//!@ingroup PARAMETER_MODULE
+/*!
+ * Base Parameter class with parameter PID and parameter length in bytes.
+ *
+ * @ingroup PARAMETER_MODULE
+ */
 class Parameter_t
 {
 public:
@@ -137,7 +205,7 @@ public:
     /**
      * @brief Constructor without parameters
      */
-    RTPS_DllAPI Parameter_t()
+    FASTDDS_EXPORTED_API Parameter_t()
         : Pid(PID_PAD)
         , length(0)
     {
@@ -145,10 +213,11 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param length Its associated length
      */
-    RTPS_DllAPI Parameter_t(
+    FASTDDS_EXPORTED_API Parameter_t(
             ParameterId_t pid,
             uint16_t length)
         : Pid(pid)
@@ -159,7 +228,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual RTPS_DllAPI ~Parameter_t()
+    virtual FASTDDS_EXPORTED_API ~Parameter_t()
     {
     }
 
@@ -186,7 +255,7 @@ class ParameterKey_t : public Parameter_t
 public:
 
     //!Instance Handle. <br> By default, c_InstanceHandle_Unknown.
-    fastrtps::rtps::InstanceHandle_t key;
+    fastdds::rtps::InstanceHandle_t key;
     /**
      * @brief Constructor without parameters
      */
@@ -196,6 +265,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -208,6 +278,7 @@ public:
 
     /**
      * @brief Constructor using a parameter PID, parameter length and Instance Handle
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      * @param ke Instance Handle to be set
@@ -215,7 +286,7 @@ public:
     ParameterKey_t(
             ParameterId_t pid,
             uint16_t in_length,
-            const fastrtps::rtps::InstanceHandle_t& ke)
+            const fastdds::rtps::InstanceHandle_t& ke)
         : Parameter_t(pid, in_length)
         , key(ke)
     {
@@ -244,6 +315,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -256,6 +328,7 @@ public:
 
     /**
      * @brief Constructor using a parameter PID, the parameter length and a Locator
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      * @param loc Locator to be set
@@ -289,6 +362,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -301,6 +375,7 @@ public:
 
     /**
      * @brief Constructor using a parameter PID, the parameter length and a string
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      * @param strin Parameter name
@@ -308,7 +383,7 @@ public:
     ParameterString_t(
             ParameterId_t pid,
             uint16_t in_length,
-            const fastrtps::string_255& strin)
+            const fastcdr::string_255& strin)
         : Parameter_t(pid, in_length)
         , string_(strin)
     {
@@ -316,6 +391,7 @@ public:
 
     /**
      * @brief Getter for the name
+     *
      * @return current name associated
      */
     inline const char* getName() const
@@ -325,6 +401,7 @@ public:
 
     /**
      * @brief Setter for the name
+     *
      * @param name String to be set
      */
     inline void setName(
@@ -335,6 +412,7 @@ public:
 
     /**
      * @brief Getter for the name size
+     *
      * @return size_t
      */
     inline size_t size() const
@@ -345,7 +423,7 @@ public:
 private:
 
     //!Name. <br> By default, empty string.
-    fastrtps::string_255 string_;
+    fastcdr::string_255 string_;
 };
 
 /**
@@ -368,6 +446,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -381,6 +460,7 @@ public:
 
     /**
      * @brief Constructor using a parameter PID, the parameter length and a port
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      * @param po Port to be set
@@ -406,7 +486,7 @@ class ParameterGuid_t : public Parameter_t
 public:
 
     //!GUID <br> By default, unknown GUID.
-    fastrtps::rtps::GUID_t guid;
+    fastdds::rtps::GUID_t guid;
 
     /**
      * @brief Constructor without parameters
@@ -417,6 +497,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -429,6 +510,7 @@ public:
 
     /**
      * @brief Constructor using a parameter PID, the parameter length and a GUID
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      * @param guidin GUID to be set
@@ -436,7 +518,7 @@ public:
     ParameterGuid_t(
             ParameterId_t pid,
             uint16_t in_length,
-            const fastrtps::rtps::GUID_t& guidin)
+            const fastdds::rtps::GUID_t& guidin)
         : Parameter_t(pid, in_length)
         , guid(guidin)
     {
@@ -444,6 +526,7 @@ public:
 
     /**
      * @brief Constructor using a parameter PID, the parameter length and a Instance Handle
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      * @param iH Instance Handle to be set as GUID
@@ -451,20 +534,10 @@ public:
     ParameterGuid_t(
             ParameterId_t pid,
             uint16_t in_length,
-            const fastrtps::rtps::InstanceHandle_t& iH)
+            const fastdds::rtps::InstanceHandle_t& iH)
         : Parameter_t(pid, in_length)
     {
-        for (uint8_t i = 0; i < 16; ++i)
-        {
-            if (i < 12)
-            {
-                guid.guidPrefix.value[i] = iH.value[i];
-            }
-            else
-            {
-                guid.entityId.value[i - 12] = iH.value[i];
-            }
-        }
+        fastdds::rtps::iHandle2GUID(guid, iH);
     }
 
 };
@@ -474,23 +547,61 @@ public:
 /**
  * @ingroup PARAMETER_MODULE
  */
+class ParameterDomainId_t : public Parameter_t
+{
+public:
+
+    //!Domain ID. <br> By default, DOMAIN_ID_UNKNOWN.
+    uint32_t domain_id;
+
+    /**
+     * @brief Constructor without parameters
+     */
+    ParameterDomainId_t()
+        : domain_id(DOMAIN_ID_UNKNOWN)
+    {
+    }
+
+    /**
+     * Constructor using a parameter PID and the parameter length
+     *
+     * @param pid Pid of the parameter
+     * @param in_length Its associated length
+     */
+    ParameterDomainId_t(
+            ParameterId_t pid,
+            uint16_t in_length)
+        : Parameter_t(pid, in_length)
+        , domain_id(DOMAIN_ID_UNKNOWN)
+    {
+        domain_id = DOMAIN_ID_UNKNOWN;
+    }
+
+};
+
+#define PARAMETER_DOMAINID_LENGTH 4
+
+/**
+ * @ingroup PARAMETER_MODULE
+ */
 class ParameterProtocolVersion_t : public Parameter_t
 {
 public:
 
     //!Protocol Version. <br> By default, c_ProtocolVersion.
-    fastrtps::rtps::ProtocolVersion_t protocolVersion;
+    fastdds::rtps::ProtocolVersion_t protocolVersion;
 
     /**
      * @brief Constructor without parameters
      */
     ParameterProtocolVersion_t()
     {
-        protocolVersion = fastrtps::rtps::c_ProtocolVersion;
+        protocolVersion = fastdds::rtps::c_ProtocolVersion;
     }
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -499,7 +610,7 @@ public:
             uint16_t in_length)
         : Parameter_t(pid, in_length)
     {
-        protocolVersion = fastrtps::rtps::c_ProtocolVersion;
+        protocolVersion = fastdds::rtps::c_ProtocolVersion;
     }
 
 };
@@ -514,18 +625,19 @@ class ParameterVendorId_t : public Parameter_t
 public:
 
     //!Vendor Id. <br> By default, c_VendorId_eProsima.
-    fastrtps::rtps::VendorId_t vendorId;
+    fastdds::rtps::VendorId_t vendorId;
 
     /**
      * @brief Constructor without parameters
      */
     ParameterVendorId_t()
-        : vendorId(fastrtps::rtps::c_VendorId_eProsima)
+        : vendorId(fastdds::rtps::c_VendorId_eProsima)
     {
     }
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -533,7 +645,7 @@ public:
             ParameterId_t pid,
             uint16_t in_length)
         : Parameter_t(pid, in_length)
-        , vendorId(fastrtps::rtps::c_VendorId_eProsima)
+        , vendorId(fastdds::rtps::c_VendorId_eProsima)
     {
     }
 
@@ -544,12 +656,45 @@ public:
 /**
  * @ingroup PARAMETER_MODULE
  */
+class ParameterProductVersion_t : public Parameter_t
+{
+public:
+
+    rtps::ProductVersion_t version;
+
+    /**
+     * @brief Constructor without parameters
+     */
+    ParameterProductVersion_t()
+    {
+    }
+
+    /**
+     * Constructor using a parameter PID and the parameter length
+     *
+     * @param pid Pid of the parameter
+     * @param in_length Its associated length
+     */
+    ParameterProductVersion_t(
+            ParameterId_t pid,
+            uint16_t in_length)
+        : Parameter_t(pid, in_length)
+    {
+    }
+
+};
+
+#define PARAMETER_PRODUCT_VERSION_LENGTH 4
+
+/**
+ * @ingroup PARAMETER_MODULE
+ */
 class ParameterIP4Address_t : public Parameter_t
 {
 public:
 
     //!Address <br> By default [0,0,0,0].
-    fastrtps::rtps::octet address[4];
+    fastdds::rtps::octet address[4];
 
     /**
      * @brief Constructor without parameters
@@ -561,6 +706,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -574,16 +720,17 @@ public:
 
     /**
      * @brief Setter for the address
+     *
      * @param o1 First octet
      * @param o2 Second octet
      * @param o3 Third octet
      * @param o4 Fourth octet
      */
     void setIP4Address(
-            fastrtps::rtps::octet o1,
-            fastrtps::rtps::octet o2,
-            fastrtps::rtps::octet o3,
-            fastrtps::rtps::octet o4)
+            fastdds::rtps::octet o1,
+            fastdds::rtps::octet o2,
+            fastdds::rtps::octet o3,
+            fastdds::rtps::octet o4)
     {
         address[0] = o1;
         address[1] = o2;
@@ -615,6 +762,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -628,6 +776,7 @@ public:
 
     /**
      * @brief Constructor using a parameter PID, the parameter length and a boolean
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      * @param inbool Boolean to be set
@@ -665,6 +814,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -678,6 +828,7 @@ public:
 
     /**
      * @brief Constructor using a parameter PID, the parameter length and status value
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      * @param instatus uint8_t to be set as status
@@ -703,7 +854,7 @@ class ParameterCount_t : public Parameter_t
 public:
 
     //!Count <br> By default, 0.
-    fastrtps::rtps::Count_t count;
+    fastdds::rtps::Count_t count;
 
     /**
      * @brief Constructor without parameter
@@ -715,6 +866,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -738,7 +890,7 @@ class ParameterEntityId_t : public Parameter_t
 public:
 
     //!EntityId <br> By default, ENTITYID_UNKNOWN.
-    fastrtps::rtps::EntityId_t entityId;
+    fastdds::rtps::EntityId_t entityId;
 
     /**
      * @brief Constructor without parameters
@@ -750,6 +902,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -773,7 +926,7 @@ class ParameterTime_t : public Parameter_t
 public:
 
     //!Time <br> By default, 0.
-    fastrtps::rtps::Time_t time;
+    fastdds::rtps::Time_t time;
 
     /**
      * @brief Constructor without parameters
@@ -784,6 +937,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -806,7 +960,7 @@ class ParameterBuiltinEndpointSet_t : public Parameter_t
 public:
 
     //!Builtin Endpoint Set <br> By default, 0.
-    fastrtps::rtps::BuiltinEndpointSet_t endpointSet;
+    fastdds::rtps::BuiltinEndpointSet_t endpointSet;
 
     /**
      * @brief Constructor without parameters
@@ -818,6 +972,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -833,6 +988,41 @@ public:
 
 #define PARAMETER_BUILTINENDPOINTSET_LENGTH 4
 
+/**
+ * @ingroup PARAMETER_MODULE
+ */
+class ParameterNetworkConfigSet_t : public Parameter_t
+{
+public:
+
+    //!Network Config Set <br> By default, 0.
+    fastdds::rtps::NetworkConfigSet_t netconfigSet;
+
+    /**
+     * @brief Constructor without parameters
+     */
+    ParameterNetworkConfigSet_t()
+        : netconfigSet(0)
+    {
+    }
+
+    /**
+     * Constructor using a parameter PID and the parameter length
+     *
+     * @param pid Pid of the parameter
+     * @param in_length Its associated length
+     */
+    ParameterNetworkConfigSet_t(
+            ParameterId_t pid,
+            uint16_t in_length)
+        : Parameter_t(pid, in_length)
+        , netconfigSet(0)
+    {
+    }
+
+};
+
+#define PARAMETER_NETWORKCONFIGSET_LENGTH 4
 
 /**
  * @ingroup PARAMETER_MODULE
@@ -845,7 +1035,7 @@ class ParameterProperty_t
 private:
 
     //!Data <br> By default, nullptr.
-    fastrtps::rtps::octet* data;
+    fastdds::rtps::octet* data;
 
 public:
 
@@ -859,16 +1049,18 @@ public:
 
     /**
      * @brief Constructor using a pointer
+     *
      * @param ptr Pointer to be set as data
      */
     explicit ParameterProperty_t(
             void* ptr)
     {
-        data = (fastrtps::rtps::octet*)ptr;
+        data = (fastdds::rtps::octet*)ptr;
     }
 
     /**
      * @brief Getter for the first element in data
+     *
      * @return string with the data
      */
     std::string first() const
@@ -879,6 +1071,7 @@ public:
 
     /**
      * @brief Getter for the second element in data
+     *
      * @return string with the data
      */
     std::string second() const
@@ -892,6 +1085,7 @@ public:
 
     /**
      * @brief Setter using a pair of strings
+     *
      * @param new_value Pair of strings with the new values
      * @return true if the modification is done correctly and false if the size of the new_value is not valid
      */
@@ -911,7 +1105,7 @@ public:
             return false;
         }
 
-        fastrtps::rtps::octet* current = data;
+        fastdds::rtps::octet* current = data;
         memcpy(current, &first_size, 4);
         memcpy(current + 4, new_value.first.c_str(), first_size);
         memset(current + 4 + first_size, 0, first_alignment);
@@ -926,6 +1120,7 @@ public:
 
     /**
      * @brief Getter that returns a pair of the first and second elements in data
+     *
      * @return Pair of strings with the first and second elements data
      */
     std::pair<const std::string, const std::string> pair() const
@@ -935,6 +1130,7 @@ public:
 
     /**
      * @brief Getter for data size
+     *
      * @return uint32_t with the size
      */
     uint32_t size() const
@@ -964,11 +1160,12 @@ private:
 
     /**
      * @brief Getter for the size of a specific octet pointer
+     *
      * @param ptr Octet pointer to measure
      * @return Size of the pointer data
      */
     static uint32_t element_size(
-            const fastrtps::rtps::octet* ptr)
+            const fastdds::rtps::octet* ptr)
     {
         //Size of the element (with alignment)
         uint32_t size = *(uint32_t*)ptr;
@@ -979,27 +1176,73 @@ private:
 
 /**
  * Parameter property ID for persistence GUID
+ *
  * @ingroup PARAMETER_MODULE
  */
 const std::string parameter_property_persistence_guid = "PID_PERSISTENCE_GUID";
 
 /**
  * Parameter property ID for participant type
+ *
  * @ingroup PARAMETER_MODULE
  */
 const std::string parameter_property_participant_type = "PARTICIPANT_TYPE";
 
 /**
  * Parameter property ID for Discovery Server version
+ *
  * @ingroup PARAMETER_MODULE
  */
 const std::string parameter_property_ds_version = "DS_VERSION";
 
 /**
  * Parameter property value for Discovery Server version
+ *
  * @ingroup PARAMETER_MODULE
  */
 const std::string parameter_property_current_ds_version = "2.0";
+
+/**
+ * Parameter property value for Host physical data
+ *
+ * @ingroup PARAMETER_MODULE
+ */
+const char* const parameter_policy_physical_data_host = "fastdds.physical_data.host";
+
+/**
+ * Parameter property value for User physical data
+ *
+ * @ingroup PARAMETER_MODULE
+ */
+const char* const parameter_policy_physical_data_user = "fastdds.physical_data.user";
+
+/**
+ * Parameter property value for Process physical data
+ *
+ * @ingroup PARAMETER_MODULE
+ */
+const char* const parameter_policy_physical_data_process = "fastdds.physical_data.process";
+
+/**
+ * Parameter property value for enabling the monitor service
+ *
+ * @ingroup PARAMETER_MODULE
+ */
+const char* const parameter_enable_monitor_service = "fastdds.enable_monitor_service";
+
+/**
+ * Parameter property value for configuring type propagation
+ *
+ * @ingroup PARAMETER_MODULE
+ */
+const char* const parameter_policy_type_propagation = "fastdds.type_propagation";
+
+/**
+ * Parameter property value for configuring serialization of optional QoS in Data(r/w)
+ *
+ * @ingroup PARAMETER_MODULE
+ */
+const char* const parameter_serialize_optional_qos = "fastdds.serialize_optional_qos";
 
 /**
  * @ingroup PARAMETER_MODULE
@@ -1009,7 +1252,7 @@ class ParameterPropertyList_t : public Parameter_t
 private:
 
     //!Properties
-    fastrtps::rtps::SerializedPayload_t properties_;
+    fastdds::rtps::SerializedPayload_t properties_;
     //!Number of properties
     uint32_t Nproperties_ = 0;
     //!Maximum size
@@ -1030,10 +1273,11 @@ public:
 
         /**
          * @brief Constructor using an octet pointer
+         *
          * @param ptr Octet pointer to be set
          */
         iterator(
-                fastrtps::rtps::octet* ptr)
+                fastdds::rtps::octet* ptr)
             : ptr_(ptr)
             , value_(ptr)
         {
@@ -1041,16 +1285,16 @@ public:
 
         self_type operator ++()
         {
-            self_type i = *this;
             advance();
-            return i;
+            return *this;
         }
 
         self_type operator ++(
                 int)
         {
+            self_type i = *this;
             advance();
-            return *this;
+            return i;
         }
 
         reference operator *()
@@ -1088,9 +1332,10 @@ public:
 
         /**
          * @brief Getter for the pointer
+         *
          * @return the pointer
          */
-        fastrtps::rtps::octet* address() const
+        fastdds::rtps::octet* address() const
         {
             return ptr_;
         }
@@ -1098,7 +1343,7 @@ public:
     private:
 
         //!Pointer
-        fastrtps::rtps::octet* ptr_;
+        fastdds::rtps::octet* ptr_;
         //!Parameter Property
         ParameterProperty_t value_;
     };
@@ -1116,27 +1361,28 @@ public:
 
         /**
          * @brief Constructor using a pointer
+         *
          * @param ptr Pointer to be set
          */
         const_iterator(
-                const fastrtps::rtps::octet* ptr)
+                const fastdds::rtps::octet* ptr)
             : ptr_(ptr)
-            , value_(const_cast<fastrtps::rtps::octet*>(ptr))
+            , value_(const_cast<fastdds::rtps::octet*>(ptr))
         {
         }
 
         self_type operator ++()
         {
-            self_type i = *this;
             advance();
-            return i;
+            return *this;
         }
 
         self_type operator ++(
                 int)
         {
+            self_type i = *this;
             advance();
-            return *this;
+            return i;
         }
 
         reference operator *()
@@ -1169,14 +1415,15 @@ public:
         void advance()
         {
             ptr_ += value_.size();
-            value_ = ParameterProperty_t(const_cast<fastrtps::rtps::octet*>(ptr_));
+            value_ = ParameterProperty_t(const_cast<fastdds::rtps::octet*>(ptr_));
         }
 
         /**
          * @brief Getter for the pointer
+         *
          * @return the pointer
          */
-        const fastrtps::rtps::octet* address() const
+        const fastdds::rtps::octet* address() const
         {
             return ptr_;
         }
@@ -1184,7 +1431,7 @@ public:
     private:
 
         //!Pointer
-        const fastrtps::rtps::octet* ptr_;
+        const fastdds::rtps::octet* ptr_;
         //!Parameter Property
         ParameterProperty_t value_;
     };
@@ -1204,6 +1451,7 @@ public:
 
     /**
      * Constructor with a defined maximum size
+     *
      * @param size Size to be set as maximum
      */
     ParameterPropertyList_t(
@@ -1217,19 +1465,23 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
+     * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
     ParameterPropertyList_t(
-            ParameterId_t /*pid*/,
+            ParameterId_t pid,
             uint16_t in_length)
         : Parameter_t(PID_PROPERTY_LIST, in_length)
         , Nproperties_ (0)
         , limit_size_ (false)
     {
+        static_cast<void>(pid);
     }
 
     /**
      * @brief Constructor using a Parameter Property List
+     *
      * @param parameter_properties Properties to be set
      */
     ParameterPropertyList_t(
@@ -1259,6 +1511,7 @@ public:
 
     /**
      * @brief Getter for the first position of the ParameterPropertyList
+     *
      * @return iterator
      */
     iterator begin()
@@ -1268,6 +1521,7 @@ public:
 
     /**
      * @brief Getter for the end of the ParameterPropertyList
+     *
      * @return iterator
      */
     iterator end()
@@ -1277,6 +1531,7 @@ public:
 
     /**
      * @brief Getter for the first position of the ParameterPropertyList
+     *
      * @return const_iterator
      */
     const_iterator begin() const
@@ -1286,6 +1541,7 @@ public:
 
     /**
      * @brief Getter for the end of the ParameterPropertyList
+     *
      * @return const_iterator
      */
     const_iterator end() const
@@ -1295,6 +1551,7 @@ public:
 
     /**
      * @brief Introduce a new property in the ParameterPropertyList
+     *
      * @param p Pair with the values of the new property
      * @return true if it is introduced, false if not.
      */
@@ -1306,6 +1563,7 @@ public:
 
     /**
      * @brief Introduce a new property in the ParameterPropertyList
+     *
      * @param key Key part of the new property
      * @param value Value part of the new property
      * @return true if it is introduced, false if not.
@@ -1324,6 +1582,7 @@ public:
 
     /**
      * @brief Introduce a new property in the ParameterPropertyList
+     *
      * @param str1 Name of the property
      * @param str1_size Size of the first string
      * @param str2 Value of the property
@@ -1350,14 +1609,15 @@ public:
                 str1_size + alignment1 + 4 +
                 str2_size + alignment2 + 4);
 
-        push_back_helper((fastrtps::rtps::octet*)str1, str1_size, alignment1);
-        push_back_helper((fastrtps::rtps::octet*)str2, str2_size, alignment2);
+        push_back_helper((fastdds::rtps::octet*)str1, str1_size, alignment1);
+        push_back_helper((fastdds::rtps::octet*)str2, str2_size, alignment2);
         ++Nproperties_;
         return true;
     }
 
     /**
      * @brief Setter of a new property value on a specific position
+     *
      * @param pos Iterator with the position of the property to be changed
      * @param new_value Value to be set
      * @return true if changed, false if not
@@ -1380,6 +1640,7 @@ public:
 
     /**
      * @brief Getter for the size of the ParameterPropertyList
+     *
      * @return uint32_t with the size
      */
     uint32_t size() const
@@ -1399,6 +1660,7 @@ public:
 
     /**
      * @brief Getter for the maximum size of the ParameterPropertyList
+     *
      * @return uint32_t with the size
      */
     uint32_t max_size ()
@@ -1409,11 +1671,11 @@ public:
 protected:
 
     void push_back_helper (
-            const fastrtps::rtps::octet* data,
+            const fastdds::rtps::octet* data,
             uint32_t size,
             uint32_t alignment)
     {
-        fastrtps::rtps::octet* o = (fastrtps::rtps::octet*)&size;
+        fastdds::rtps::octet* o = (fastdds::rtps::octet*)&size;
         memcpy(properties_.data + properties_.length, o, 4);
         properties_.length += 4;
 
@@ -1438,18 +1700,19 @@ class ParameterSampleIdentity_t : public Parameter_t
 public:
 
     //!Sample Identity <br> By default, unknown.
-    fastrtps::rtps::SampleIdentity sample_id;
+    fastdds::rtps::SampleIdentity sample_id;
 
     /**
      * @brief Constructor without parameters
      */
     ParameterSampleIdentity_t()
-        : sample_id(fastrtps::rtps::SampleIdentity::unknown())
+        : sample_id(fastdds::rtps::SampleIdentity::unknown())
     {
     }
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -1457,31 +1720,89 @@ public:
             ParameterId_t pid,
             uint16_t in_length)
         : Parameter_t(pid, in_length)
-        , sample_id(fastrtps::rtps::SampleIdentity::unknown())
+        , sample_id(fastdds::rtps::SampleIdentity::unknown())
     {
     }
 
     /**
      * Add the parameter to a CDRMessage_t message.
-     * @param[in,out] msg Pointer to the message where the parameter should be added.
+     *
+     * @param [in,out] msg Pointer to the message where the parameter should be added.
      * @return True if the parameter was correctly added.
      */
     bool addToCDRMessage(
-            fastrtps::rtps::CDRMessage_t* msg) const;
+            fastdds::rtps::CDRMessage_t* msg) const;
 
     /**
      * Read the parameter from a CDRMessage_t message.
-     * @param[in,out] msg Pointer to the message from where the parameter should be taken.
+     *
+     * @param [in,out] msg Pointer to the message from where the parameter should be taken.
      * @param size Size of the parameter field to read
      * @return True if the parameter was correctly taken.
      */
     bool readFromCDRMessage(
-            fastrtps::rtps::CDRMessage_t* msg,
+            fastdds::rtps::CDRMessage_t* msg,
             uint16_t size);
 
 };
 
 #define PARAMETER_SAMPLEIDENTITY_LENGTH 24
+
+/**
+ * @ingroup PARAMETER_MODULE
+ */
+class ParameterOriginalWriterInfo_t : public Parameter_t
+{
+public:
+
+    //! Original Writer Info <br> By default, unknown.
+    fastdds::rtps::OriginalWriterInfo original_writer_info;
+
+    /**
+     * @brief Constructor without parameters
+     */
+    ParameterOriginalWriterInfo_t()
+        : original_writer_info(fastdds::rtps::OriginalWriterInfo::unknown())
+    {
+    }
+
+    /**
+     * Constructor using a parameter PID and the parameter length
+     *
+     * @param pid Pid of the parameter
+     * @param in_length Its associated length
+     */
+    ParameterOriginalWriterInfo_t(
+            ParameterId_t pid,
+            uint16_t in_length)
+        : Parameter_t(pid, in_length)
+        , original_writer_info(fastdds::rtps::OriginalWriterInfo::unknown())
+    {
+    }
+
+    /**
+     * Add the parameter to a CDRMessage_t message.
+     *
+     * @param [in,out] msg Pointer to the message where the parameter should be added.
+     * @return True if the parameter was correctly added.
+     */
+    bool addToCDRMessage(
+            fastdds::rtps::CDRMessage_t* msg) const;
+
+    /**
+     * Read the parameter from a CDRMessage_t message.
+     *
+     * @param [in,out] msg Pointer to the message from where the parameter should be taken.
+     * @param size Size of the parameter field to read
+     * @return True if the parameter was correctly taken.
+     */
+    bool readFromCDRMessage(
+            fastdds::rtps::CDRMessage_t* msg,
+            uint16_t size);
+
+};
+
+#define PARAMETER_ORIGINALWRITERINFO_LENGTH 24
 
 
 #if HAVE_SECURITY
@@ -1494,7 +1815,7 @@ class ParameterToken_t : public Parameter_t
 public:
 
     //!Token
-    fastrtps::rtps::Token token;
+    fastdds::rtps::Token token;
 
     /**
      * @brief Constructor without parameters
@@ -1505,6 +1826,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -1528,9 +1850,9 @@ class ParameterParticipantSecurityInfo_t : public Parameter_t
 public:
 
     //!Participant Security Attributes Mask <br> By default, 0.
-    fastrtps::rtps::security::ParticipantSecurityAttributesMask security_attributes = 0;
+    fastdds::rtps::security::ParticipantSecurityAttributesMask security_attributes = 0;
     //!Plugin Participant Security Attributes Mask <br> By default, 0.
-    fastrtps::rtps::security::PluginParticipantSecurityAttributesMask plugin_security_attributes = 0;
+    fastdds::rtps::security::PluginParticipantSecurityAttributesMask plugin_security_attributes = 0;
 
     /**
      * @brief Constructor without parameters. <br>
@@ -1544,6 +1866,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -1566,8 +1889,8 @@ class ParameterEndpointSecurityInfo_t : public Parameter_t
 {
 public:
 
-    fastrtps::rtps::security::EndpointSecurityAttributesMask security_attributes = 0;
-    fastrtps::rtps::security::PluginEndpointSecurityAttributesMask plugin_security_attributes = 0;
+    fastdds::rtps::security::EndpointSecurityAttributesMask security_attributes = 0;
+    fastdds::rtps::security::PluginEndpointSecurityAttributesMask plugin_security_attributes = 0;
 
     /**
      * @brief Constructor without parameters. <br>
@@ -1581,6 +1904,7 @@ public:
 
     /**
      * Constructor using a parameter PID and the parameter length
+     *
      * @param pid Pid of the parameter
      * @param in_length Its associated length
      */
@@ -1663,8 +1987,39 @@ T get_proxy_property(
 }
 
 } //namespace dds
+
+namespace rtps {
+
+using ParameterId_t = fastdds::dds::ParameterId_t;
+using Parameter_t = fastdds::dds::Parameter_t;
+using ParameterKey_t = fastdds::dds::ParameterKey_t;
+using ParameterLocator_t = fastdds::dds::ParameterLocator_t;
+using ParameterString_t = fastdds::dds::ParameterString_t;
+using ParameterPort_t = fastdds::dds::ParameterPort_t;
+using ParameterGuid_t = fastdds::dds::ParameterGuid_t;
+using ParameterDomainId_t = fastdds::dds::ParameterDomainId_t;
+using ParameterProtocolVersion_t = fastdds::dds::ParameterProtocolVersion_t;
+using ParameterVendorId_t = fastdds::dds::ParameterVendorId_t;
+using ParameterProductVersion_t = fastdds::dds::ParameterProductVersion_t;
+using ParameterIP4Address_t = fastdds::dds::ParameterIP4Address_t;
+using ParameterBool_t = fastdds::dds::ParameterBool_t;
+using ParameterStatusInfo_t = fastdds::dds::ParameterStatusInfo_t;
+using ParameterCount_t = fastdds::dds::ParameterCount_t;
+using ParameterEntityId_t = fastdds::dds::ParameterEntityId_t;
+using ParameterTime_t = fastdds::dds::ParameterTime_t;
+using ParameterBuiltinEndpointSet_t = fastdds::dds::ParameterBuiltinEndpointSet_t;
+using ParameterNetworkConfigSet_t = fastdds::dds::ParameterNetworkConfigSet_t;
+using ParameterPropertyList_t = fastdds::dds::ParameterPropertyList_t;
+using ParameterSampleIdentity_t = fastdds::dds::ParameterSampleIdentity_t;
+#if HAVE_SECURITY
+using ParameterToken_t = fastdds::dds::ParameterToken_t;
+using ParameterParticipantSecurityInfo_t = fastdds::dds::ParameterParticipantSecurityInfo_t;
+using ParameterEndpointSecurityInfo_t = fastdds::dds::ParameterEndpointSecurityInfo_t;
+#endif // if HAVE_SECURITY
+
+} //namespace rtps
 } //namespace fastdds
 } //namespace eprosima
 
 #endif // ifndef DOXYGEN_SHOULD_SKIP_THIS_PUBLIC
-#endif // _FASTDDS_DDS_QOS_PARAMETERTYPES_HPP_
+#endif // FASTDDS_DDS_CORE_POLICY__PARAMETERTYPES_HPP

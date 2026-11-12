@@ -14,15 +14,18 @@
 
 #include <rtps/transport/UDPChannelResource.h>
 
-#include <asio.hpp>
-#include <fastdds/rtps/messages/MessageReceiver.h>
+#include "../network/asio.hpp"
+
+#include <fastdds/rtps/attributes/ThreadSettings.hpp>
+
+#include <rtps/messages/MessageReceiver.h>
 #include <rtps/transport/UDPTransportInterface.h>
+#include <utils/threading.hpp>
 
 namespace eprosima {
 namespace fastdds {
 namespace rtps {
 
-using octet = fastrtps::rtps::octet;
 using Log = fastdds::dds::Log;
 
 UDPChannelResource::UDPChannelResource(
@@ -31,7 +34,8 @@ UDPChannelResource::UDPChannelResource(
         uint32_t maxMsgSize,
         const Locator& locator,
         const std::string& sInterface,
-        TransportReceiverInterface* receiver)
+        TransportReceiverInterface* receiver,
+        const ThreadSettings& thread_config)
     : ChannelResource(maxMsgSize)
     , message_receiver_(receiver)
     , socket_(moveSocket(socket))
@@ -39,12 +43,19 @@ UDPChannelResource::UDPChannelResource(
     , interface_(sInterface)
     , transport_(transport)
 {
-    thread(std::thread(&UDPChannelResource::perform_listen_operation, this, locator));
+    auto fn = [this, locator]()
+            {
+                perform_listen_operation(locator);
+            };
+    thread(create_thread(fn, thread_config, "dds.udp.%u", locator.port));
 }
 
 UDPChannelResource::~UDPChannelResource()
 {
     message_receiver_ = nullptr;
+
+    asio::error_code ec;
+    socket()->close(ec);
 }
 
 void UDPChannelResource::perform_listen_operation(
@@ -68,7 +79,7 @@ void UDPChannelResource::perform_listen_operation(
         }
         else if (alive())
         {
-            logWarning(RTPS_MSG_IN, "Received Message, but no receiver attached");
+            EPROSIMA_LOG_WARNING(RTPS_MSG_IN, "Received Message, but no receiver attached");
         }
     }
 
@@ -101,8 +112,8 @@ bool UDPChannelResource::Receive(
     catch (const std::exception& error)
     {
         (void)error;
-        logWarning(RTPS_MSG_OUT, "Error receiving data: " << error.what() << " - " << message_receiver()
-                                                          << " (" << this << ")");
+        EPROSIMA_LOG_WARNING(RTPS_MSG_OUT, "Error receiving data: " << error.what() << " - " << message_receiver()
+                                                                    << " (" << this << ")");
         return false;
     }
 }
@@ -117,10 +128,13 @@ void UDPChannelResource::release()
     // in Windows and Linux anyways, which is what we want.
     asio::error_code ec;
     socket()->shutdown(asio::socket_base::shutdown_type::shutdown_receive, ec);
-    // On OSX shutdown does not unblock the listening thread, but close does.
+
+#if defined(__APPLE__)
+    // On OSX shutdown does not seem to unblock the listening thread, but close does.
     socket()->close();
+#endif // if defined(__APPLE__)
 }
 
 } // namespace rtps
-} // namespace fastrtps
+} // namespace fastdds
 } // namespace eprosima

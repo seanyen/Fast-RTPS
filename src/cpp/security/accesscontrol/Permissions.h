@@ -19,85 +19,151 @@
 #ifndef _SECURITY_ACCESSCONTROL_PERMISSIONS_H_
 #define _SECURITY_ACCESSCONTROL_PERMISSIONS_H_
 
-#include <fastdds/rtps/security/accesscontrol/AccessControl.h>
-#include <fastdds/rtps/common/Token.h>
+#include <chrono>
+#include <memory>
+#include <mutex>
+#include <vector>
+
+#include <fastdds/rtps/common/Token.hpp>
+#include <rtps/security/accesscontrol/AccessControl.h>
+#include <security/accesscontrol/AccessPermissionsHandle.h>
 
 namespace eprosima {
-namespace fastrtps {
+namespace fastdds {
 namespace rtps {
 namespace security {
 
 class Permissions : public AccessControl
 {
-    public:
+public:
 
-        virtual ~Permissions() = default;
+    virtual ~Permissions() = default;
 
-        PermissionsHandle* validate_local_permissions(Authentication& auth_plugin,
-                const IdentityHandle& identity,
-                const uint32_t domain_id,
-                const RTPSParticipantAttributes& participant_attr,
-                SecurityException& exception) override;
+    PermissionsHandle* validate_local_permissions(
+            Authentication& auth_plugin,
+            const IdentityHandle& identity,
+            const uint32_t domain_id,
+            const PropertyPolicy& part_props,
+            SecurityException& exception) override;
 
-        bool get_permissions_token(PermissionsToken** permissions_token, const PermissionsHandle& handle,
-                SecurityException& exception) override;
+    bool get_permissions_token(
+            PermissionsToken** permissions_token,
+            const PermissionsHandle& handle,
+            SecurityException& exception) override;
 
-        bool return_permissions_token(PermissionsToken* token, SecurityException& exception) override;
+    bool return_permissions_token(
+            PermissionsToken* token,
+            SecurityException& exception) override;
 
-        bool get_permissions_credential_token(PermissionsCredentialToken** permissions_credential_token,
-                const PermissionsHandle& handle, SecurityException& exception) override;
+    bool get_permissions_credential_token(
+            PermissionsCredentialToken** permissions_credential_token,
+            const PermissionsHandle& handle,
+            SecurityException& exception) override;
 
-        bool return_permissions_credential_token(PermissionsCredentialToken* token,
-                SecurityException& exception) override;
+    bool return_permissions_credential_token(
+            PermissionsCredentialToken* token,
+            SecurityException& exception) override;
 
-        bool return_permissions_handle(PermissionsHandle* permissions_handle,
-                SecurityException& exception) override;
+    PermissionsHandle* get_permissions_handle(
+            SecurityException& exception) override;
 
-        PermissionsHandle* validate_remote_permissions(Authentication& auth_plugin,
-                const IdentityHandle& local_identity_handle,
-                const PermissionsHandle& local_permissions_handle,
-                const IdentityHandle& remote_identity_handle,
-                const PermissionsToken& remote_permissions_token,
-                const PermissionsCredentialToken& remote_credential_token,
-                SecurityException& exception) override;
+    bool return_permissions_handle(
+            PermissionsHandle* permissions_handle,
+            SecurityException& exception) override;
 
-        bool check_create_participant(const PermissionsHandle& local_handle, const uint32_t domain_id,
-                const RTPSParticipantAttributes& qos, SecurityException& exception) override;
+    PermissionsHandle* validate_remote_permissions(
+            Authentication& auth_plugin,
+            const IdentityHandle& local_identity_handle,
+            const PermissionsHandle& local_permissions_handle,
+            const IdentityHandle& remote_identity_handle,
+            const PermissionsToken& remote_permissions_token,
+            const PermissionsCredentialToken& remote_credential_token,
+            SecurityException& exception) override;
 
-        bool check_remote_participant(const PermissionsHandle& remote_handle, const uint32_t domain_id,
-                const ParticipantProxyData&, SecurityException& exception) override;
+    bool check_create_participant(
+            const PermissionsHandle& local_handle,
+            const uint32_t domain_id,
+            SecurityException& exception) override;
 
-        bool check_create_datawriter(const PermissionsHandle& local_handle,
-                const uint32_t domain_id, const std::string& topic_name,
-                const std::vector<std::string>& partitions, SecurityException& exception) override;
+    bool check_remote_participant(
+            const PermissionsHandle& remote_handle,
+            const uint32_t domain_id,
+            const ParticipantProxyData&,
+            SecurityException& exception) override;
 
-        bool check_create_datareader(const PermissionsHandle& local_handle,
-                const uint32_t domain_id, const std::string& topic_name,
-                const std::vector<std::string>& partitions, SecurityException& exception) override;
+    bool check_create_datawriter(
+            const PermissionsHandle& local_handle,
+            const uint32_t domain_id,
+            const std::string& topic_name,
+            const std::vector<std::string>& partitions,
+            SecurityException& exception) override;
 
-        bool check_remote_datawriter(const PermissionsHandle& remote_handle,
-                const uint32_t domain_id, const WriterProxyData& publication_data,
-                SecurityException& exception) override;
+    bool check_create_datareader(
+            const PermissionsHandle& local_handle,
+            const uint32_t domain_id,
+            const std::string& topic_name,
+            const std::vector<std::string>& partitions,
+            SecurityException& exception) override;
 
-        bool check_remote_datareader(const PermissionsHandle& remote_handle,
-                const uint32_t domain_id, const ReaderProxyData& subscription_data,
-                bool& relay_only, SecurityException& exception) override;
+    bool check_remote_datawriter(
+            const PermissionsHandle& remote_handle,
+            const uint32_t domain_id,
+            const WriterProxyData& publication_data,
+            SecurityException& exception) override;
 
-        bool get_participant_sec_attributes(const PermissionsHandle& local_handle,
-                ParticipantSecurityAttributes& attributes, SecurityException& exception) override;
+    bool check_remote_datareader(
+            const PermissionsHandle& remote_handle,
+            const uint32_t domain_id,
+            const ReaderProxyData& subscription_data,
+            bool& relay_only,
+            SecurityException& exception) override;
 
-        bool get_datawriter_sec_attributes(const PermissionsHandle& permissions_handle,
-                const std::string& topic_name, const std::vector<std::string>& partitions,
-                EndpointSecurityAttributes& attributes, SecurityException& exception) override;
+    bool get_participant_sec_attributes(
+            const PermissionsHandle& local_handle,
+            ParticipantSecurityAttributes& attributes,
+            SecurityException& exception) override;
 
-        bool get_datareader_sec_attributes(const PermissionsHandle& permissions_handle,
-                const std::string& topic_name, const std::vector<std::string>& partitions,
-                EndpointSecurityAttributes& attributes, SecurityException& exception) override;
+    bool get_datawriter_sec_attributes(
+            const PermissionsHandle& permissions_handle,
+            const std::string& topic_name,
+            const std::vector<std::string>& partitions,
+            EndpointSecurityAttributes& attributes,
+            SecurityException& exception) override;
+
+    bool get_datareader_sec_attributes(
+            const PermissionsHandle& permissions_handle,
+            const std::string& topic_name,
+            const std::vector<std::string>& partitions,
+            EndpointSecurityAttributes& attributes,
+            SecurityException& exception) override;
+
+    bool set_listener(
+            AccessControlListener* listener,
+            SecurityException& exception) override;
+
+    void set_event_resource(
+            eprosima::fastdds::rtps::ResourceEvent& service) override;
+
+    void arm_permissions_expiry(
+            PermissionsHandle& permissions_handle) override;
+
+private:
+
+    void drain_expired_timers();
+
+    AccessControlListener* listener_ = nullptr;
+    std::mutex listener_mtx_;
+
+    eprosima::fastdds::rtps::ResourceEvent* event_resource_ = nullptr;
+
+    // Timers that fired are kept here, as they can't be deleted from their own callback
+    std::vector<std::unique_ptr<eprosima::fastdds::rtps::TimedEvent>> expired_timers_;
+    std::mutex expired_timers_mtx_;
 };
 
 } //namespace security
 } //namespace rtps
-} //namespace fastrtps
+} //namespace fastdds
 } //namespace eprosima
 
 #endif // _SECURITY_ACCESSCONTROL_PERMISSIONS_H_

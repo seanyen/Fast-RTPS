@@ -15,7 +15,7 @@
 #ifndef _FASTDDS_UDPV6_TRANSPORT_H_
 #define _FASTDDS_UDPV6_TRANSPORT_H_
 
-#include <fastdds/rtps/transport/UDPv6TransportDescriptor.h>
+#include <fastdds/rtps/transport/UDPv6TransportDescriptor.hpp>
 #include <rtps/transport/UDPTransportInterface.h>
 
 namespace eprosima {
@@ -43,26 +43,26 @@ class UDPv6Transport : public UDPTransportInterface
 {
 public:
 
-    RTPS_DllAPI UDPv6Transport(
+    FASTDDS_EXPORTED_API UDPv6Transport(
             const UDPv6TransportDescriptor&);
 
-    virtual ~UDPv6Transport() override;
+    ~UDPv6Transport() override;
 
-    virtual const UDPTransportDescriptor* configuration() const override;
+    const UDPTransportDescriptor* configuration() const override;
 
     /**
      * Starts listening on the specified port, and if the specified address is in the
      * multicast range, it joins the specified multicast group,
      */
-    virtual bool OpenInputChannel(
+    bool OpenInputChannel(
             const Locator&,
             TransportReceiverInterface*,
             uint32_t) override;
 
-    virtual LocatorList NormalizeLocator(
+    LocatorList NormalizeLocator(
             const Locator& locator) override;
 
-    virtual bool is_local_locator(
+    bool is_local_locator(
             const Locator& locator) const override;
 
     TransportDescriptorInterface* get_configuration() override
@@ -70,20 +70,26 @@ public:
         return &configuration_;
     }
 
-    virtual bool getDefaultMetatrafficMulticastLocators(
+    bool getDefaultMetatrafficMulticastLocators(
             LocatorList& locators,
             uint32_t metatraffic_multicast_port) const override;
 
-    virtual bool getDefaultMetatrafficUnicastLocators(
+    bool getDefaultMetatrafficUnicastLocators(
             LocatorList& locators,
             uint32_t metatraffic_unicast_port) const override;
+
+    bool getDefaultMulticastLocators(
+            LocatorList& locators,
+            uint32_t multicast_port) const override;
 
     bool getDefaultUnicastLocators(
             LocatorList& locators,
             uint32_t unicast_port) const override;
 
-    virtual void AddDefaultOutputLocator(
+    void AddDefaultOutputLocator(
             LocatorList& defaultList) override;
+
+    void update_network_interfaces() override;
 
 protected:
 
@@ -91,73 +97,81 @@ protected:
     UDPv6Transport();
     UDPv6TransportDescriptor configuration_;
 
-    virtual bool compare_locator_ip(
+    bool compare_locator_ip(
             const Locator& lh,
             const Locator& rh) const override;
-    virtual bool compare_locator_ip_and_port(
+    bool compare_locator_ip_and_port(
             const Locator& lh,
             const Locator& rh) const override;
 
-    virtual void endpoint_to_locator(
+    void endpoint_to_locator(
             asio::ip::udp::endpoint& endpoint,
             Locator& locator) override;
-    virtual void fill_local_ip(
+    void fill_local_ip(
             Locator& loc) const override;
 
-    virtual asio::ip::udp::endpoint GenerateAnyAddressEndpoint(
+    asio::ip::udp::endpoint GenerateAnyAddressEndpoint(
             uint16_t port) override;
-    virtual asio::ip::udp::endpoint generate_endpoint(
+    asio::ip::udp::endpoint generate_endpoint(
             uint16_t port) override;
-    virtual asio::ip::udp::endpoint generate_endpoint(
+    asio::ip::udp::endpoint generate_endpoint(
             const std::string& sIp,
             uint16_t port) override;
-    virtual asio::ip::udp::endpoint generate_endpoint(
+    asio::ip::udp::endpoint generate_endpoint(
             const Locator& loc,
             uint16_t port) override;
-    virtual asio::ip::udp::endpoint generate_local_endpoint(
+    asio::ip::udp::endpoint generate_local_endpoint(
             const Locator& loc,
             uint16_t port) override;
-    virtual asio::ip::udp generate_protocol() const override;
-    virtual void get_ips(
-            std::vector<fastrtps::rtps::IPFinder::info_IP>& locNames,
-            bool return_loopback = false) override;
-    virtual const std::string& localhost_name() override;
+    asio::ip::udp generate_protocol() const override;
+    bool get_ips(
+            std::vector<fastdds::rtps::IPFinder::info_IP>& locNames,
+            bool return_loopback,
+            bool force_lookup) const override;
+    const std::string& localhost_name() override;
     eProsimaUDPSocket OpenAndBindInputSocket(
             const std::string& sIp,
             uint16_t port,
             bool is_multicast) override;
 
     //! Checks for whether locator is allowed.
-    virtual bool is_locator_allowed(
+    bool is_locator_allowed(
             const Locator&) const override;
+
+    //! Checks for whether locator is reachable.
+    bool is_locator_reachable(
+            const Locator_t&) override;
 
     /**
      * Method to get a list of interfaces to bind the socket associated to the given locator.
      * @return Vector of interfaces in string format.
      */
-    virtual std::vector<std::string> get_binding_interfaces_list() override;
+    std::vector<std::string> get_binding_interfaces_list() override;
 
     //! Checks if the given interface is allowed by the white list.
-    virtual bool is_interface_allowed(
-            const std::string& interface) const override;
+    bool is_interface_allowed(
+            const std::string& iface) const override;
 
     //! Checks if the interfaces white list is empty.
-    virtual bool is_interface_whitelist_empty() const override;
+    bool is_interface_whitelist_empty() const override;
     std::vector<asio::ip::address_v6> interface_whitelist_;
 
-    virtual void set_receive_buffer_size(
+    void set_receive_buffer_size(
             uint32_t size) override;
-    virtual void set_send_buffer_size(
+    void set_send_buffer_size(
             uint32_t size) override;
-    virtual void SetSocketOutboundInterface(
+    void SetSocketOutboundInterface(
             eProsimaUDPSocket&,
             const std::string&) override;
 
     //! Checks if the IP address is the same without taking into account the scope of the IPv6 address
-    bool compare_ips(
+    static bool compare_ips(
             const std::string& ip1,
-            const std::string& ip2) const;
+            const std::string& ip2);
 };
+
+const char* const DEFAULT_METATRAFFIC_MULTICAST_ADDRESS_v6 = "ff1e::ffff:efff:1";
+const char* const DEFAULT_MULTICAST_ADDRESS_v6 = DEFAULT_METATRAFFIC_MULTICAST_ADDRESS_v6;
 
 } // namespace rtps
 } // namespace fastdds

@@ -15,43 +15,48 @@
 #ifndef __TRANSPORT_UDPSENDERRESOURCE_HPP__
 #define __TRANSPORT_UDPSENDERRESOURCE_HPP__
 
-#include <fastdds/rtps/common/Locator.h>
-#include <fastdds/rtps/network/SenderResource.h>
+#include <fastdds/rtps/common/Locator.hpp>
+#include <fastdds/rtps/transport/SenderResource.hpp>
 
+#include <rtps/transport/ChainingSenderResource.hpp>
 #include <rtps/transport/UDPTransportInterface.h>
 
 namespace eprosima {
 namespace fastdds {
 namespace rtps {
 
-class UDPSenderResource : public fastrtps::rtps::SenderResource
+class UDPSenderResource : public SenderResource
 {
 public:
 
     UDPSenderResource(
             UDPTransportInterface& transport,
             eProsimaUDPSocket& socket,
-            bool only_multicast_purpose = false)
+            bool only_multicast_purpose = false,
+            bool whitelisted = false)
         : SenderResource(transport.kind())
         , socket_(moveSocket(socket))
         , only_multicast_purpose_(only_multicast_purpose)
+        , whitelisted_(whitelisted)
         , transport_(transport)
     {
         // Implementation functions are bound to the right transport parameters
         clean_up = [this, &transport]()
                 {
-                    transport.CloseOutputChannel(socket_);
+                    transport.SenderResourceHasBeenClosed(socket_);
                 };
 
         send_lambda_ = [this, &transport](
-            const fastrtps::rtps::octet* data,
-            uint32_t dataSize,
-            fastrtps::rtps::LocatorsIterator* destination_locators_begin,
-            fastrtps::rtps::LocatorsIterator* destination_locators_end,
-            const std::chrono::steady_clock::time_point& max_blocking_time_point) -> bool
+            const std::vector<NetworkBuffer>& buffers,
+            uint32_t total_bytes,
+            LocatorsIterator* destination_locators_begin,
+            LocatorsIterator* destination_locators_end,
+            const std::chrono::steady_clock::time_point& max_blocking_time_point,
+            int32_t transport_priority) -> bool
                 {
-                    return transport.send(data, dataSize, socket_, destination_locators_begin,
-                                   destination_locators_end, only_multicast_purpose_, max_blocking_time_point);
+                    return transport.send(buffers, total_bytes, socket_, destination_locators_begin,
+                                   destination_locators_end, only_multicast_purpose_, whitelisted_,
+                                   max_blocking_time_point, transport_priority);
                 };
     }
 
@@ -72,6 +77,15 @@ public:
         locators.push_back(locator);
     }
 
+    bool check_ip_address(
+            const Locator& locator) const
+    {
+        Locator sender_resource_locator;
+        auto local_endpoint = getSocketPtr(socket_)->local_endpoint();
+        transport_.endpoint_to_locator(local_endpoint, sender_resource_locator);
+        return memcmp(&sender_resource_locator.address[12], &locator.address[12], 4) == 0;
+    }
+
     static UDPSenderResource* cast(
             TransportInterface& transport,
             SenderResource* sender_resource)
@@ -81,6 +95,17 @@ public:
         if (sender_resource->kind() == transport.kind())
         {
             returned_resource = dynamic_cast<UDPSenderResource*>(sender_resource);
+
+            //! May be chained
+            if (!returned_resource)
+            {
+                auto chaining_sender = dynamic_cast<ChainingSenderResource*>(sender_resource);
+
+                if (chaining_sender)
+                {
+                    returned_resource = dynamic_cast<UDPSenderResource*>(chaining_sender->lower_sender_cast());
+                }
+            }
         }
 
         return returned_resource;
@@ -99,12 +124,13 @@ private:
     eProsimaUDPSocket socket_;
 
     bool only_multicast_purpose_;
+    bool whitelisted_;
 
     UDPTransportInterface& transport_;
 };
 
 } // namespace rtps
-} // namespace fastrtps
+} // namespace fastdds
 } // namespace eprosima
 
 #endif // __TRANSPORT_UDPSENDERRESOURCE_HPP__

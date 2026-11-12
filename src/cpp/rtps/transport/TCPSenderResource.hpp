@@ -16,40 +16,44 @@
 #define __TRANSPORT_TCPSENDERRESOURCE_HPP__
 
 #include <fastdds/rtps/common/LocatorsIterator.hpp>
-#include <fastdds/rtps/network/SenderResource.h>
+#include <fastdds/rtps/transport/SenderResource.hpp>
 
-#include <rtps/transport/TCPTransportInterface.h>
+#include <rtps/transport/ChainingSenderResource.hpp>
 #include <rtps/transport/TCPChannelResource.h>
+#include <rtps/transport/TCPTransportInterface.h>
 
 namespace eprosima {
 namespace fastdds {
 namespace rtps {
 
-class TCPSenderResource : public fastrtps::rtps::SenderResource
+class TCPSenderResource : public SenderResource
 {
 public:
 
     TCPSenderResource(
             TCPTransportInterface& transport,
-            std::shared_ptr<TCPChannelResource>& channel)
-        : fastrtps::rtps::SenderResource(transport.kind())
+            Locator_t& locator,
+            const std::shared_ptr<TCPChannelResource>& channel = {})
+        : SenderResource(transport.kind())
+        , locator_(locator)
         , channel_(channel)
     {
         // Implementation functions are bound to the right transport parameters
         clean_up = [this, &transport]()
                 {
-                    transport.CloseOutputChannel(channel_);
+                    transport.SenderResourceHasBeenClosed(locator_);
                 };
 
         send_lambda_ = [this, &transport](
-            const fastrtps::rtps::octet* data,
-            uint32_t dataSize,
-            fastrtps::rtps::LocatorsIterator* destination_locators_begin,
-            fastrtps::rtps::LocatorsIterator* destination_locators_end,
-            const std::chrono::steady_clock::time_point&) -> bool
+            const std::vector<NetworkBuffer>& buffers,
+            uint32_t total_bytes,
+            LocatorsIterator* destination_locators_begin,
+            LocatorsIterator* destination_locators_end,
+            const std::chrono::steady_clock::time_point&,
+            int32_t transport_priority) -> bool
                 {
-                    return transport.send(data, dataSize, channel_, destination_locators_begin,
-                                   destination_locators_end);
+                    return transport.send(buffers, total_bytes, locator_, destination_locators_begin,
+                                   destination_locators_end, transport_priority);
                 };
     }
 
@@ -61,13 +65,18 @@ public:
         }
     }
 
-    std::shared_ptr<TCPChannelResource>& channel()
+    Locator_t& locator()
+    {
+        return locator_;
+    }
+
+    const std::weak_ptr<TCPChannelResource>& channel() const
     {
         return channel_;
     }
 
     static TCPSenderResource* cast(
-            TransportInterface& transport,
+            const TransportInterface& transport,
             SenderResource* sender_resource)
     {
         TCPSenderResource* returned_resource = nullptr;
@@ -75,6 +84,17 @@ public:
         if (sender_resource->kind() == transport.kind())
         {
             returned_resource = dynamic_cast<TCPSenderResource*>(sender_resource);
+
+            //! May be chained
+            if (!returned_resource)
+            {
+                auto chaining_sender = dynamic_cast<ChainingSenderResource*>(sender_resource);
+
+                if (chaining_sender)
+                {
+                    returned_resource = dynamic_cast<TCPSenderResource*>(chaining_sender->lower_sender_cast());
+                }
+            }
         }
 
         return returned_resource;
@@ -90,11 +110,14 @@ private:
     TCPSenderResource& operator =(
             const SenderResource&) = delete;
 
-    std::shared_ptr<TCPChannelResource> channel_;
+    Locator_t locator_;
+
+    // Identity of the TCP channel at creation time, used to detect a reconnected channel sharing the same locator.
+    std::weak_ptr<TCPChannelResource> channel_;
 };
 
 } // namespace rtps
-} // namespace fastrtps
+} // namespace fastdds
 } // namespace eprosima
 
 #endif // __TRANSPORT_UDPSENDERRESOURCE_HPP__

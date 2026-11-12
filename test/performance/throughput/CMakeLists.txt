@@ -34,9 +34,10 @@ target_include_directories(ThroughputTest PRIVATE ${Asio_INCLUDE_DIR})
 
 target_link_libraries(
     ThroughputTest
-    fastrtps
+    fastdds
     fastcdr
     foonathan_memory
+    fastdds::optionparser
     ${CMAKE_THREAD_LIBS_INIT}
     ${CMAKE_DL_LIBS}
 )
@@ -46,14 +47,14 @@ target_link_libraries(
 ###########################################################################
 set(
     THROUGHPUT_TEST_LIST
-    intraprocess_best_effort
-    intraprocess_reliable
-    interprocess_best_effort_udp
-    interprocess_reliable_udp
-#    interprocess_best_effort_tcp
-#    interprocess_reliable_tcp
-    interprocess_best_effort_shm
-    interprocess_reliable_shm
+    intraprocess_best_effort_profile
+    intraprocess_reliable_profile
+    interprocess_best_effort_udp_profile
+    interprocess_reliable_udp_profile
+#   interprocess_best_effort_tcp_profile
+#   interprocess_reliable_tcp_profile
+    interprocess_best_effort_shm_profile
+    interprocess_reliable_shm_profile
 )
 
 ###########################################################################
@@ -63,30 +64,30 @@ set(
 
 set(
     DATA_SHARING_LIST
-    intraprocess_best_effort
-    intraprocess_reliable
-    interprocess_best_effort_shm
-    interprocess_reliable_shm
+    intraprocess_best_effort_profile
+    intraprocess_reliable_profile
+    interprocess_best_effort_shm_profile
+    interprocess_reliable_shm_profile
 )
 
 set(
     LOAN_SAMPLES_LIST
-    intraprocess_best_effort
-    intraprocess_reliable
-    interprocess_best_effort_shm
-    interprocess_reliable_shm
-    interprocess_best_effort_udp
-    interprocess_reliable_udp
-    interprocess_best_effort_tcp
-    interprocess_reliable_tcp
+    intraprocess_best_effort_profile
+    intraprocess_reliable_profile
+    interprocess_best_effort_udp_profile
+    interprocess_reliable_udp_profile
+#   interprocess_best_effort_tcp_profile
+#   interprocess_reliable_tcp_profile
+    interprocess_best_effort_shm_profile
+    interprocess_reliable_shm_profile
 )
 
 set(
     DATA_SHARING_AND_LOAN_SAMPLES_LIST
-    intraprocess_best_effort
-    intraprocess_reliable
-    interprocess_best_effort_shm
-    interprocess_reliable_shm
+    intraprocess_best_effort_profile
+    intraprocess_reliable_profile
+    interprocess_best_effort_shm_profile
+    interprocess_reliable_shm_profile
 )
 
 ###########################################################################
@@ -103,8 +104,8 @@ endforeach(throughput_test_name)
 ###########################################################################
 # Create tests                                                            #
 ###########################################################################
-find_package(PythonInterp 3 REQUIRED)
-if(PYTHONINTERP_FOUND)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+if(Python3_Interpreter_FOUND)
     # Loop over the test names
     foreach(throughput_test_name ${THROUGHPUT_TEST_LIST})
 
@@ -134,7 +135,7 @@ if(PYTHONINTERP_FOUND)
         # Add the test
         add_test(
             NAME performance.throughput.${throughput_test_name}
-            COMMAND ${PYTHON_EXECUTABLE}
+            COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/throughput_tests.py
             --xml_file ${CMAKE_CURRENT_SOURCE_DIR}/xml/${throughput_test_name}.xml
             --recoveries_file ${CMAKE_CURRENT_SOURCE_DIR}/recoveries.csv
@@ -170,7 +171,7 @@ if(PYTHONINTERP_FOUND)
 
             add_test(
                 NAME performance.throughput.${throughput_test_name}.security
-                COMMAND ${PYTHON_EXECUTABLE}
+                COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/throughput_tests.py
                 --xml_file ${CMAKE_CURRENT_SOURCE_DIR}/xml/${throughput_test_name}.xml
                 --recoveries_file ${CMAKE_CURRENT_SOURCE_DIR}/recoveries.csv
@@ -196,7 +197,7 @@ if(PYTHONINTERP_FOUND)
 
             add_test(
                 NAME performance.throughput.${throughput_test_name}.data_sharing
-                COMMAND ${PYTHON_EXECUTABLE}
+                COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/throughput_tests.py
                 --xml_file ${CMAKE_CURRENT_SOURCE_DIR}/xml/${throughput_test_name}.xml
                 --recoveries_file ${CMAKE_CURRENT_SOURCE_DIR}/recoveries.csv
@@ -216,7 +217,7 @@ if(PYTHONINTERP_FOUND)
 
             add_test(
                 NAME performance.throughput.${throughput_test_name}.data_loans
-                COMMAND ${PYTHON_EXECUTABLE}
+                COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/throughput_tests.py
                 --xml_file ${CMAKE_CURRENT_SOURCE_DIR}/xml/${throughput_test_name}.xml
                 --recoveries_file ${CMAKE_CURRENT_SOURCE_DIR}/recoveries.csv
@@ -233,7 +234,7 @@ if(PYTHONINTERP_FOUND)
 
                 add_test(
                     NAME performance.throughput.${throughput_test_name}.data_loans.security
-                    COMMAND ${PYTHON_EXECUTABLE}
+                    COMMAND ${Python3_EXECUTABLE}
                     ${CMAKE_CURRENT_SOURCE_DIR}/throughput_tests.py
                     --xml_file ${CMAKE_CURRENT_SOURCE_DIR}/xml/${throughput_test_name}.xml
                     --recoveries_file ${CMAKE_CURRENT_SOURCE_DIR}/recoveries.csv
@@ -262,7 +263,7 @@ if(PYTHONINTERP_FOUND)
 
             add_test(
                 NAME performance.throughput.${throughput_test_name}.data_loans_and_sharing
-                COMMAND ${PYTHON_EXECUTABLE}
+                COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/throughput_tests.py
                 --xml_file ${CMAKE_CURRENT_SOURCE_DIR}/xml/${throughput_test_name}.xml
                 --recoveries_file ${CMAKE_CURRENT_SOURCE_DIR}/recoveries.csv
@@ -302,3 +303,6 @@ if(PYTHONINTERP_FOUND)
 
     endforeach(throughput_test_name)
 endif()
+
+# Trace each TSan report. No-op if TSan is not enabled
+tsan_name_reports()

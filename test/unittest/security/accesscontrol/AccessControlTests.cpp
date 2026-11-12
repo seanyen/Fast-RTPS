@@ -12,25 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <security/OpenSSLInit.hpp>
-
-#include <fastrtps/rtps/builtin/data/ParticipantProxyData.h>
-#include <fastrtps/rtps/builtin/data/WriterProxyData.h>
-#include <fastrtps/rtps/builtin/data/ReaderProxyData.h>
-
-#include <fastrtps/rtps/messages/CDRMessage.h>
-#include <security/authentication/PKIDH.h>
-#include <security/authentication/PKIIdentityHandle.h>
-#include <security/authentication/PKIHandshakeHandle.h>
-#include <security/accesscontrol/Permissions.h>
-#include <security/accesscontrol/AccessPermissionsHandle.h>
+#include <iostream>
+#include <string>
 
 #include <gtest/gtest.h>
 
-#include <iostream>
+#include <rtps/builtin/data/ParticipantProxyData.hpp>
+#include <rtps/builtin/data/ReaderProxyData.hpp>
+#include <rtps/builtin/data/WriterProxyData.hpp>
+#include <rtps/messages/CDRMessage.hpp>
+#include <security/accesscontrol/AccessPermissionsHandle.h>
+#include <security/accesscontrol/Permissions.h>
+#include <security/accesscontrol/PermissionsParser.h>
+#include <security/authentication/PKIDH.h>
+#include <security/authentication/PKIHandshakeHandle.h>
+#include <security/authentication/PKIIdentityHandle.h>
+#include <security/OpenSSLInit.hpp>
 
-using namespace eprosima::fastrtps::rtps;
-using namespace eprosima::fastrtps::rtps::security;
+using namespace eprosima::fastdds::rtps;
+using namespace eprosima::fastdds::rtps::security;
 
 static const char* certs_path = nullptr;
 
@@ -41,7 +41,9 @@ protected:
     virtual void SetUp()
     {
         fill_candidate_participant_key();
+        permissions_ca = "maincacert.pem";
         permissions_file = "permissions_access_control_tests.smime";
+        governance_file = "governance_helloworld_all_enable.smime";
     }
 
     virtual void TearDown()
@@ -50,7 +52,7 @@ protected:
 
     AccessControlTest()
     {
-        static eprosima::fastrtps::rtps::security::OpenSSLInit openssl_init;
+        static eprosima::fastdds::rtps::security::OpenSSLInit openssl_init;
     }
 
     void fill_common_participant_security_attributes(
@@ -62,7 +64,8 @@ protected:
 
     void get_access_handle(
             const RTPSParticipantAttributes& participant_attr,
-            PermissionsHandle** access_handle);
+            PermissionsHandle** access_handle,
+            bool should_success = true);
     void fill_candidate_participant_key();
 
     GUID_t candidate_participant_key;
@@ -87,6 +90,8 @@ public:
     uint32_t domain_id = 0;
     std::string topic_name;
     std::vector<std::string> partitions;
+    std::string permissions_ca;
+    std::string governance_file;
     std::string permissions_file;
 };
 
@@ -148,10 +153,10 @@ void AccessControlTest::fill_common_participant_security_attributes(
             emplace_back(Property("dds.sec.access.authentication_plugin", "builtin.Access-Permissions"));
     participant_attr.properties.properties().
             emplace_back(Property("dds.sec.access.builtin.Access-Permissions.permissions_ca",
-            "file://" + std::string(certs_path) + "/maincacert.pem"));
+            "file://" + std::string(certs_path) + "/" + permissions_ca));
     participant_attr.properties.properties().
             emplace_back(Property("dds.sec.access.builtin.Access-Permissions.governance",
-            "file://" + std::string(certs_path) + "/governance_helloworld_all_enable.smime"));
+            "file://" + std::string(certs_path) + "/" + governance_file));
     participant_attr.properties.properties().
             emplace_back(Property("dds.sec.access.builtin.Access-Permissions.permissions",
             "file://" + std::string(certs_path) + "/" + permissions_file));
@@ -159,9 +164,11 @@ void AccessControlTest::fill_common_participant_security_attributes(
 
 void AccessControlTest::get_access_handle(
         const RTPSParticipantAttributes& participant_attr,
-        PermissionsHandle** access_handle)
+        PermissionsHandle** access_handle,
+        bool should_success)
 {
     IdentityHandle* identity_handle = nullptr;
+    auto part_props = participant_attr.properties;
 
     ValidationResult_t result = ValidationResult_t::VALIDATION_FAILED;
     SecurityException exception;
@@ -171,7 +178,7 @@ void AccessControlTest::get_access_handle(
         &identity_handle,
         adjusted_participant_key,
         domain_id,
-        participant_attr,
+        part_props,
         candidate_participant_key,
         exception);
 
@@ -183,10 +190,11 @@ void AccessControlTest::get_access_handle(
         authentication_plugin,
         *identity_handle,
         domain_id,
-        participant_attr,
+        part_props,
         exception);
 
-    ASSERT_TRUE(*access_handle != nullptr) << exception.what();
+    bool success = *access_handle != nullptr;
+    ASSERT_EQ(success, should_success) << exception.what();
     ASSERT_TRUE(authentication_plugin.return_identity_handle(identity_handle, exception)) << exception.what();
 }
 
@@ -227,8 +235,8 @@ void AccessControlTest::check_remote_datareader(
     SecurityException exception;
 
     ReaderProxyData reader_proxy_data(1, 1);
-    reader_proxy_data.topicName(eprosima::fastrtps::string_255(topic_name));
-    reader_proxy_data.m_qos.m_partition.setNames(partitions);
+    reader_proxy_data.topic_name = eprosima::fastcdr::string_255(topic_name);
+    reader_proxy_data.partition.setNames(partitions);
     bool relay_only;
     bool result = access_plugin.check_remote_datareader(
         *access_handle,
@@ -285,8 +293,8 @@ void AccessControlTest::check_remote_datawriter(
     SecurityException exception;
 
     WriterProxyData writer_proxy_data(1, 1);
-    writer_proxy_data.topicName(eprosima::fastrtps::string_255(topic_name));
-    writer_proxy_data.m_qos.m_partition.setNames(partitions);
+    writer_proxy_data.topic_name = eprosima::fastcdr::string_255(topic_name);
+    writer_proxy_data.partition.setNames(partitions);
     bool result = access_plugin.check_remote_datawriter(
         *access_handle,
         domain_id,
@@ -448,18 +456,224 @@ TEST_F(AccessControlTest, validate_partition_access_ok_on_permission_wildcards)
     check_remote_datawriter(publisher_participant_attr, true);
 }
 
+/* Regression test for Redmine 17099 (Github 3239).
+ *
+ * Using a modified permissions file signed with the subscriber identity certificate should fail.
+ */
+TEST_F(AccessControlTest, validate_fail_on_self_signed_permissions)
+{
+    permissions_file = "permissions_access_control_tests_malicious.smime";
+
+    RTPSParticipantAttributes subscriber_participant_attr;
+    fill_subscriber_participant_security_attributes(subscriber_participant_attr);
+
+    PermissionsHandle* access_handle;
+    get_access_handle(subscriber_participant_attr, &access_handle, false);
+}
+
+/* Regression test for advisory GHSA-w33g-jmm2-8983
+ *
+ * Creating a participant with an expired Permissions CA should fail.
+ */
+TEST_F(AccessControlTest, validate_fail_on_expired_permissions_ca)
+{
+    permissions_ca = "expired_ca_cert.pem";
+    permissions_file = "permissions_signed_by_expired_ca.smime";
+    governance_file = "governance_signed_by_expired_ca.smime";
+
+    RTPSParticipantAttributes subscriber_participant_attr;
+    fill_subscriber_participant_security_attributes(subscriber_participant_attr);
+
+    PermissionsHandle* access_handle;
+    get_access_handle(subscriber_participant_attr, &access_handle, false);
+}
+
+/* Regression test for advisory GHSA-w33g-jmm2-8983
+ *
+ * Permissions signed by an intermediate CA should be valid.
+ */
+TEST_F(AccessControlTest, validation_ok_on_chained_ca)
+{
+    permissions_ca = "chainedcacert.pem";
+    permissions_file = "permissions_signed_by_chained_ca.smime";
+    governance_file = "governance_signed_by_chained_ca.smime";
+
+    topic_name = "HelloWorldTopic_no_partitions";
+
+    RTPSParticipantAttributes subscriber_participant_attr;
+    fill_subscriber_participant_security_attributes(subscriber_participant_attr);
+    check_local_datareader(subscriber_participant_attr, true);
+    check_remote_datareader(subscriber_participant_attr, true);
+
+    RTPSParticipantAttributes publisher_participant_attr;
+    fill_publisher_participant_security_attributes(publisher_participant_attr);
+    check_local_datawriter(publisher_participant_attr, true);
+    check_remote_datawriter(publisher_participant_attr, true);
+}
+
+/* Regression test for advisories GHSA-j2w9-582m-j57r/
+ *
+ * GHSA-rg6h-2jch-hwjx/GHSA-r4gh-qh7w-jxqf
+ *
+ * NULL Pointer Dereferences in Permissions and Governance Parsers
+ */
+TEST_F(AccessControlTest, participant_creation_fail_with_empty_no_after_xml_field)
+{
+    permissions_ca = "maincacert.pem";
+    permissions_file = "permissions_blank_not_after.smime";
+    governance_file = "governance_helloworld_all_enable.smime";
+
+    RTPSParticipantAttributes subscriber_participant_attr;
+    fill_subscriber_participant_security_attributes(subscriber_participant_attr);
+
+    PermissionsHandle* access_handle;
+    get_access_handle(subscriber_participant_attr, &access_handle, false);
+
+}
+
+TEST_F(AccessControlTest, participant_creation_fail_with_empty_dds_xml_field)
+{
+    permissions_ca = "maincacert.pem";
+    permissions_file = "permissions_blank_dds.smime";
+    governance_file = "governance_helloworld_all_enable.smime";
+
+    RTPSParticipantAttributes subscriber_participant_attr;
+    fill_subscriber_participant_security_attributes(subscriber_participant_attr);
+
+    PermissionsHandle* access_handle;
+    get_access_handle(subscriber_participant_attr, &access_handle, false);
+
+}
+
+TEST_F(AccessControlTest, participant_creation_fail_with_empty_topic_expression_xml_field)
+{
+    permissions_ca = "maincacert.pem";
+    permissions_file = "permissions_access_control_tests.smime";
+    governance_file = "governance_blank_topic_expression.smime";
+
+    RTPSParticipantAttributes subscriber_participant_attr;
+    fill_subscriber_participant_security_attributes(subscriber_participant_attr);
+
+    PermissionsHandle* access_handle;
+    get_access_handle(subscriber_participant_attr, &access_handle, false);
+
+}
+
+static void set_time_zone(
+        const char* time_zone)
+{
+#ifdef _WIN32
+    _putenv_s("TZ", time_zone);
+    _tzset();
+#else
+    if (*time_zone == '\0')
+    {
+        unsetenv("TZ");
+    }
+    else
+    {
+        setenv("TZ", time_zone, 1);
+    }
+    tzset();
+#endif // _WIN32
+}
+
+// Restores TZ even if the test fails
+struct TimeZoneRestorer
+{
+    ~TimeZoneRestorer()
+    {
+        set_time_zone(previous.c_str());
+    }
+
+    const std::string previous = std::getenv("TZ") != nullptr ? std::getenv("TZ") : "";
+};
+
+static std::string permissions_with_validity(
+        const std::string& not_before,
+        const std::string& not_after)
+{
+    return
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+        "<dds>"
+        "<permissions>"
+        "<grant name=\"Grant\">"
+        "<subject_name>CN=Main Subscriber</subject_name>"
+        "<validity>"
+        "<not_before>" + not_before + "</not_before>"
+        "<not_after>" + not_after + "</not_after>"
+        "</validity>"
+        "<allow_rule>"
+        "<domains><id>0</id></domains>"
+        "<subscribe><topics><topic>*</topic></topics></subscribe>"
+        "</allow_rule>"
+        "<default>DENY</default>"
+        "</grant>"
+        "</permissions>"
+        "</dds>";
+}
+
+TEST(PermissionsParserTest, validity_without_time_zone_is_utc)
+{
+    // Otherwise a UTC machine would pass even when parsing as local time
+    TimeZoneRestorer restorer;
+    set_time_zone("CET-1");
+
+    const std::string xml = permissions_with_validity("2020-01-01T00:00:00", "2030-01-01T00:00:00");
+
+    PermissionsParser parser;
+    ASSERT_TRUE(parser.parse_stream(xml.c_str(), xml.size()));
+
+    PermissionsData data;
+    parser.swap(data);
+    ASSERT_EQ(data.grants.size(), 1u);
+    EXPECT_EQ(data.grants[0].validity.not_before, static_cast<std::time_t>(1577836800));
+    EXPECT_EQ(data.grants[0].validity.not_after, static_cast<std::time_t>(1893456000));
+}
+
+TEST(PermissionsParserTest, validity_time_zone_is_applied)
+{
+    TimeZoneRestorer restorer;
+    set_time_zone("CET-1");
+
+    const std::string xml = permissions_with_validity("2020-01-01T00:00:00.500Z", "2030-01-01T02:00:00+02:00");
+
+    PermissionsParser parser;
+    ASSERT_TRUE(parser.parse_stream(xml.c_str(), xml.size()));
+
+    PermissionsData data;
+    parser.swap(data);
+    ASSERT_EQ(data.grants.size(), 1u);
+    EXPECT_EQ(data.grants[0].validity.not_before, static_cast<std::time_t>(1577836800));
+    EXPECT_EQ(data.grants[0].validity.not_after, static_cast<std::time_t>(1893456000));
+}
+
+TEST(PermissionsParserTest, validity_with_invalid_time_zone_fails)
+{
+    for (const char* not_after : {"2030-01-01T00:00:00+0200", "2030-01-01T00:00:00+15:00", "2030-01-01T00:00:00 UTC"})
+    {
+        const std::string xml = permissions_with_validity("2020-01-01T00:00:00", not_after);
+
+        PermissionsParser parser;
+        EXPECT_FALSE(parser.parse_stream(xml.c_str(), xml.size())) << not_after;
+    }
+}
+
 int main(
         int argc,
         char** argv)
 {
     testing::InitGoogleTest(&argc, argv);
 
-    certs_path = std::getenv("CERTS_PATH");
-
-    if (certs_path == nullptr)
+    if (!::testing::GTEST_FLAG(list_tests))
     {
-        std::cout << "Cannot get enviroment variable CERTS_PATH" << std::endl;
-        exit(-1);
+        certs_path = std::getenv("CERTS_PATH");
+
+        if (certs_path == nullptr)
+        {
+            std::cout << "Cannot get enviroment variable CERTS_PATH" << std::endl;
+            exit(-1);
+        }
     }
 
     return RUN_ALL_TESTS();

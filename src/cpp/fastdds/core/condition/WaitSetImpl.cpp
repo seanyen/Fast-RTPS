@@ -21,13 +21,11 @@
 #include <condition_variable>
 #include <mutex>
 
+#include <fastdds/dds/core/ReturnCode.hpp>
 #include <fastdds/dds/core/condition/Condition.hpp>
-#include <fastdds/rtps/common/Time_t.h>
-#include <fastrtps/types/TypesBase.h>
+#include <fastdds/rtps/common/Time_t.hpp>
 
 #include <fastdds/core/condition/ConditionNotifier.hpp>
-
-using eprosima::fastrtps::types::ReturnCode_t;
 
 namespace eprosima {
 namespace fastdds {
@@ -36,8 +34,16 @@ namespace detail {
 
 WaitSetImpl::~WaitSetImpl()
 {
-    std::lock_guard<std::mutex> guard(mutex_);
-    for (const Condition* c : entries_)
+    eprosima::utilities::collections::unordered_vector<const Condition*> old_entries;
+
+    {
+        // We only need to protect access to the collection.
+        std::lock_guard<std::mutex> guard(mutex_);
+        old_entries = entries_;
+        entries_.clear();
+    }
+
+    for (const Condition* c : old_entries)
     {
         c->get_notifier()->detach_from(this);
     }
@@ -46,51 +52,67 @@ WaitSetImpl::~WaitSetImpl()
 ReturnCode_t WaitSetImpl::attach_condition(
         const Condition& condition)
 {
-    std::lock_guard<std::mutex> guard(mutex_);
-    bool was_there = entries_.remove(&condition);
-    entries_.emplace_back(&condition);
+    bool was_there = false;
+
+    {
+        // We only need to protect access to the collection.
+        std::lock_guard<std::mutex> guard(mutex_);
+
+        was_there = entries_.remove(&condition);
+        entries_.emplace_back(&condition);
+    }
 
     if (!was_there)
     {
         // This is a new condition. Inform the notifier of our interest.
         condition.get_notifier()->attach_to(this);
 
-        // Should wake_up when adding a new triggered condition
-        if (is_waiting_ && condition.get_trigger_value())
         {
-            wake_up();
+            // Might happen that a wait changes is_waiting_'s status. Protect it.
+            std::lock_guard<std::mutex> guard(mutex_);
+
+            // Should wake_up when adding a new triggered condition
+            if (is_waiting_ && condition.get_trigger_value())
+            {
+                cond_.notify_one();
+            }
         }
     }
 
-    return ReturnCode_t::RETCODE_OK;
+    return RETCODE_OK;
 }
 
 ReturnCode_t WaitSetImpl::detach_condition(
         const Condition& condition)
 {
-    std::lock_guard<std::mutex> guard(mutex_);
-    bool was_there = entries_.remove(&condition);
+    bool was_there = false;
+
+    {
+        // We only need to protect access to the collection.
+        std::lock_guard<std::mutex> guard(mutex_);
+        was_there = entries_.remove(&condition);
+    }
 
     if (was_there)
     {
         // Inform the notifier we are not interested anymore.
         condition.get_notifier()->detach_from(this);
-        return ReturnCode_t::RETCODE_OK;
+        return RETCODE_OK;
     }
 
     // Condition not found
-    return ReturnCode_t::RETCODE_PRECONDITION_NOT_MET;
+    return RETCODE_PRECONDITION_NOT_MET;
 }
 
 ReturnCode_t WaitSetImpl::wait(
         ConditionSeq& active_conditions,
-        const fastrtps::Duration_t& timeout)
+        const fastdds::dds::Duration_t& timeout)
 {
     std::unique_lock<std::mutex> lock(mutex_);
 
     if (is_waiting_)
     {
-        return ReturnCode_t::RETCODE_PRECONDITION_NOT_MET;
+        return RETCODE_PRECONDITION_NOT_MET;
     }
 
     auto fill_active_conditions = [&]()
@@ -110,7 +132,7 @@ ReturnCode_t WaitSetImpl::wait(
 
     bool condition_value = false;
     is_waiting_ = true;
-    if (fastrtps::c_TimeInfinite == timeout)
+    if (fastdds::dds::c_TimeInfinite == timeout)
     {
         cond_.wait(lock, fill_active_conditions);
         condition_value = true;
@@ -122,7 +144,7 @@ ReturnCode_t WaitSetImpl::wait(
     }
     is_waiting_ = false;
 
-    return condition_value ? ReturnCode_t::RETCODE_OK : ReturnCode_t::RETCODE_TIMEOUT;
+    return condition_value ? RETCODE_OK : RETCODE_TIMEOUT;
 }
 
 ReturnCode_t WaitSetImpl::get_conditions(
@@ -135,11 +157,12 @@ ReturnCode_t WaitSetImpl::get_conditions(
     {
         attached_conditions.push_back(const_cast<Condition*>(c));
     }
-    return ReturnCode_t::RETCODE_OK;
+    return RETCODE_OK;
 }
 
 void WaitSetImpl::wake_up()
 {
+    std::lock_guard<std::mutex> guard(mutex_);
     cond_.notify_one();
 }
 

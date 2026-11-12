@@ -12,27 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "BlackboxTests.hpp"
-
-#include "PubSubReader.hpp"
-#include "PubSubWriter.hpp"
-#include "ReqRepAsReliableHelloWorldRequester.hpp"
-#include "ReqRepAsReliableHelloWorldReplier.hpp"
-
+#include <fastdds/dds/domain/DomainParticipantFactory.hpp>
+#include <fastdds/LibrarySettings.hpp>
 #include <gtest/gtest.h>
 
-#include <fastrtps/utils/TimeConversion.h>
-#include <fastrtps/xmlparser//XMLProfileManager.h>
+#include "BlackboxTests.hpp"
+#include "PubSubReader.hpp"
+#include "PubSubWriter.hpp"
 
-using namespace eprosima::fastrtps;
-using namespace eprosima::fastrtps::rtps;
+using namespace eprosima::fastdds;
+using namespace eprosima::fastdds::rtps;
 
+namespace {
 enum communication_type
 {
     TRANSPORT,
     INTRAPROCESS,
     DATASHARING
 };
+}  // namespace
 
 class LifespanQos : public testing::TestWithParam<communication_type>
 {
@@ -40,12 +38,13 @@ public:
 
     void SetUp() override
     {
-        LibrarySettingsAttributes library_settings;
+        eprosima::fastdds::LibrarySettings library_settings;
         switch (GetParam())
         {
             case INTRAPROCESS:
-                library_settings.intraprocess_delivery = IntraprocessDeliveryType::INTRAPROCESS_FULL;
-                xmlparser::XMLProfileManager::library_settings(library_settings);
+                library_settings.intraprocess_delivery = eprosima::fastdds::IntraprocessDeliveryType::INTRAPROCESS_FULL;
+                eprosima::fastdds::dds::DomainParticipantFactory::get_instance()->set_library_settings(
+                    library_settings);
                 break;
             case DATASHARING:
                 enable_datasharing = true;
@@ -58,12 +57,13 @@ public:
 
     void TearDown() override
     {
-        LibrarySettingsAttributes library_settings;
+        eprosima::fastdds::LibrarySettings library_settings;
         switch (GetParam())
         {
             case INTRAPROCESS:
-                library_settings.intraprocess_delivery = IntraprocessDeliveryType::INTRAPROCESS_OFF;
-                xmlparser::XMLProfileManager::library_settings(library_settings);
+                library_settings.intraprocess_delivery = eprosima::fastdds::IntraprocessDeliveryType::INTRAPROCESS_OFF;
+                eprosima::fastdds::dds::DomainParticipantFactory::get_instance()->set_library_settings(
+                    library_settings);
                 break;
             case DATASHARING:
                 enable_datasharing = false;
@@ -83,8 +83,8 @@ TEST_P(LifespanQos, LongLifespan)
     // and checks that those changes can be removed from the history
     // as they should not have been removed due to lifespan QoS
 
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME, false);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME, false);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     // Write rate in milliseconds
     uint32_t writer_sleep_ms = 1;
@@ -93,11 +93,11 @@ TEST_P(LifespanQos, LongLifespan)
     // Lifespan period in milliseconds
     uint32_t lifespan_ms = 10000;
 
-    writer.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS)
+    writer.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS)
             .lifespan_period(lifespan_ms * 1e-3)
             .init();
-    reader.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS)
-            .reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS)
+    reader.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS)
+            .reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS)
             .init();
 
     ASSERT_TRUE(reader.isInitialized());
@@ -123,7 +123,7 @@ TEST_P(LifespanQos, LongLifespan)
     EXPECT_EQ(removed_pub, writer_samples);
 
     // On the reader side we should be able to take the data
-    HelloWorldType::type msg;
+    HelloWorldPubSubType::type msg;
     for (uint32_t i = 0; i < writer_samples; ++i)
     {
         EXPECT_EQ(reader.take_first_data(&msg), true);
@@ -136,8 +136,8 @@ TEST_P(LifespanQos, ShortLifespan)
     // and checks that those samples cannot be removed from the history as
     // they have been removed by lifespan QoS
 
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     // Write rate in milliseconds
     uint32_t writer_sleep_ms = 200;
@@ -146,10 +146,10 @@ TEST_P(LifespanQos, ShortLifespan)
     // Lifespan period in milliseconds
     uint32_t lifespan_ms = 1;
 
-    writer.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS)
+    writer.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS)
             .lifespan_period(lifespan_ms * 1e-3)
             .init();
-    reader.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS)
+    reader.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS)
             .lifespan_period(lifespan_ms * 1e-3)
             .init();
 
@@ -171,7 +171,7 @@ TEST_P(LifespanQos, ShortLifespan)
     EXPECT_EQ(removed_pub, 0u);
 
     // On the reader side we should not be able to take the data
-    HelloWorldType::type msg;
+    HelloWorldPubSubType::type msg;
     for (uint32_t i = 0; i < writer_samples; ++i)
     {
         EXPECT_EQ(reader.take_first_data(&msg), false);

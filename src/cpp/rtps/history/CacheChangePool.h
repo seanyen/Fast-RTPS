@@ -19,9 +19,9 @@
 #ifndef RTPS_HISTORY_CACHECHANGEPOOL_H_
 #define RTPS_HISTORY_CACHECHANGEPOOL_H_
 
-#include <fastdds/rtps/common/CacheChange.h>
-#include <fastdds/rtps/history/IChangePool.h>
-#include <fastdds/rtps/resources/ResourceManagement.h>
+#include <fastdds/rtps/attributes/ResourceManagement.hpp>
+#include <fastdds/rtps/common/CacheChange.hpp>
+#include <fastdds/rtps/history/IChangePool.hpp>
 
 #include <rtps/history/PoolConfig.h>
 
@@ -31,7 +31,7 @@
 #include <cstddef>
 
 namespace eprosima {
-namespace fastrtps {
+namespace fastdds {
 namespace rtps {
 
 /**
@@ -46,7 +46,8 @@ public:
     virtual ~CacheChangePool();
 
     /**
-     * Constructor.
+     * Construct and initialize a CacheChangePool.
+     *
      * @param config   Pool configuration (member @c payload_initial_size is not being used).
      * @param f        Functor to be called on all preallocated elements.
      */
@@ -54,17 +55,21 @@ public:
     CacheChangePool(
             const PoolConfig& config,
             UnaryFunction f)
-        : CacheChangePool(config)
     {
+        init(config);
         std::for_each(all_caches_.begin(), all_caches_.end(), f);
     }
 
     /**
-     * Constructor.
+     * Construct and initialize a CacheChangePool.
+     *
      * @param config   Pool configuration (member @c payload_initial_size is not being used).
      */
     CacheChangePool(
-            const PoolConfig& config);
+            const PoolConfig& config)
+    {
+        init(config);
+    }
 
     bool reserve_cache(
             CacheChange_t*& cache_change) override;
@@ -84,11 +89,32 @@ public:
         return free_caches_.size();
     }
 
+protected:
+
+    /**
+     * Construct a CacheChangePool without initialization.
+     */
+    CacheChangePool() = default;
+
+    void init(
+            const PoolConfig& config);
+
+    virtual CacheChange_t* create_change() const
+    {
+        return new CacheChange_t();
+    }
+
+    virtual void destroy_change(
+            CacheChange_t* change) const
+    {
+        delete change;
+    }
+
 private:
 
     uint32_t current_pool_size_ = 0;
     uint32_t max_pool_size_ = 0;
-    MemoryManagementPolicy_t memory_mode_ = MemoryManagementPolicy_t::DYNAMIC_RESERVE_MEMORY_MODE;
+    MemoryManagementPolicy_t memory_mode_ = MemoryManagementPolicy_t::PREALLOCATED_WITH_REALLOC_MEMORY_MODE;
 
     std::vector<CacheChange_t*> free_caches_;
     std::vector<CacheChange_t*> all_caches_;
@@ -105,7 +131,7 @@ private:
 };
 
 } // namespace rtps
-} // namespace fastrtps
+} // namespace fastdds
 } // namespace eprosima
 
 #endif /* RTPS_HISTORY_CACHECHANGEPOOL_H_ */

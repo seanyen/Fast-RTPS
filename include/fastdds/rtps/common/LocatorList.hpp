@@ -16,13 +16,14 @@
  * @file LocatorList.hpp
  */
 
-#ifndef _FASTDDS_RTPS_COMMON_LOCATORLIST_HPP_
-#define _FASTDDS_RTPS_COMMON_LOCATORLIST_HPP_
+#ifndef FASTDDS_RTPS_COMMON__LOCATORLIST_HPP
+#define FASTDDS_RTPS_COMMON__LOCATORLIST_HPP
 
-#include <fastrtps/fastrtps_dll.h>
+#include <fastdds/fastdds_dll.hpp>
 
-#include <fastdds/rtps/common/Locator.h>
+#include <fastdds/rtps/common/Locator.hpp>
 #include <fastdds/rtps/common/LocatorsIterator.hpp>
+#include <fastdds/utils/collections/ResourceLimitedVector.hpp>
 
 #include <vector>
 #include <cstdint>
@@ -34,7 +35,9 @@ namespace eprosima {
 namespace fastdds {
 namespace rtps {
 
+/// Iterator to iterate over a vector of locators.
 typedef std::vector<Locator>::iterator LocatorListIterator;
+/// Constant iterator to iterate over a vector of locators.
 typedef std::vector<Locator>::const_iterator LocatorListConstIterator;
 
 /**
@@ -44,12 +47,14 @@ class Locators : public LocatorsIterator
 {
 public:
 
+    /// Constructor
     Locators(
             const LocatorListConstIterator& it)
         : it_(it)
     {
     }
 
+    /// Copy constructor
     Locators(
             const Locators& other)
         : it_(other.it_)
@@ -85,48 +90,57 @@ private:
 };
 
 /**
- * Class LocatorList, a Locator vector that doesn't avoid duplicates.
+ * Class LocatorList, a Locator vector that doesn't allow duplicates.
  * @ingroup COMMON_MODULE
  */
 class LocatorList
 {
 public:
 
-    RTPS_DllAPI LocatorList()
+    using value_type = typename std::vector<Locator>::value_type;
+
+    /// Constructor
+    FASTDDS_EXPORTED_API LocatorList()
     {
     }
 
-    RTPS_DllAPI ~LocatorList()
+    /// Destructor
+    FASTDDS_EXPORTED_API ~LocatorList()
     {
     }
 
-    RTPS_DllAPI LocatorList(
+    /// Copy constructor
+    FASTDDS_EXPORTED_API LocatorList(
             const LocatorList& list)
         : m_locators(list.m_locators)
     {
     }
 
-    RTPS_DllAPI LocatorList(
+    /// Move constructor
+    FASTDDS_EXPORTED_API LocatorList(
             LocatorList&& list)
         : m_locators(std::move(list.m_locators))
     {
     }
 
-    RTPS_DllAPI LocatorList& operator =(
+    /// Copy assignment
+    FASTDDS_EXPORTED_API LocatorList& operator =(
             const LocatorList& list)
     {
         m_locators = list.m_locators;
         return *this;
     }
 
-    RTPS_DllAPI LocatorList& operator =(
+    /// Move assignment
+    FASTDDS_EXPORTED_API LocatorList& operator =(
             LocatorList&& list)
     {
         m_locators = std::move(list.m_locators);
         return *this;
     }
 
-    RTPS_DllAPI bool operator ==(
+    /// Equal to operator
+    FASTDDS_EXPORTED_API bool operator ==(
             const LocatorList& locator_list) const
     {
         if (locator_list.m_locators.size() == m_locators.size())
@@ -153,32 +167,70 @@ public:
         return false;
     }
 
-    RTPS_DllAPI LocatorListIterator begin()
+    /// Not equal to operator
+    FASTDDS_EXPORTED_API bool operator !=(
+            const LocatorList& locator_list) const
+    {
+        return !(*this == locator_list);
+    }
+
+    /**
+     * @brief Return an iterator to the beginning.
+     *
+     * @return LocatorListIterator iterator to the first locator.
+     */
+    FASTDDS_EXPORTED_API LocatorListIterator begin()
     {
         return m_locators.begin();
     }
 
-    RTPS_DllAPI LocatorListIterator end()
+    /**
+     * @brief Return an iterator to the end.
+     *
+     * @return LocatorListIterator iterator to the element following the last element.
+     */
+    FASTDDS_EXPORTED_API LocatorListIterator end()
     {
         return m_locators.end();
     }
 
-    RTPS_DllAPI LocatorListConstIterator begin() const
+    /**
+     * @brief Return a constant iterator to the beginning.
+     *
+     * @return LocatorListConstIterator iterator to the first locator.
+     */
+    FASTDDS_EXPORTED_API LocatorListConstIterator begin() const
     {
         return m_locators.begin();
     }
 
-    RTPS_DllAPI LocatorListConstIterator end() const
+    /**
+     * @brief Return a constant iterator to the end.
+     *
+     * @return LocatorListConstIterator iterator to the element following the last element.
+     */
+    FASTDDS_EXPORTED_API LocatorListConstIterator end() const
     {
         return m_locators.end();
     }
 
-    RTPS_DllAPI size_t size() const
+    /**
+     * @brief Return the number of locators.
+     *
+     * @return size_t The number of locators in the container.
+     */
+    FASTDDS_EXPORTED_API size_t size() const
     {
         return m_locators.size();
     }
 
-    RTPS_DllAPI LocatorList& assign(
+    /**
+     * @brief Replace the contents of the container.
+     *
+     * @param list New content to be saved into the container.
+     * @return LocatorList& reference to the container with the replaced content.
+     */
+    FASTDDS_EXPORTED_API LocatorList& assign(
             const LocatorList& list)
     {
         if (!(*this == list))
@@ -188,24 +240,44 @@ public:
         return *this;
     }
 
-    RTPS_DllAPI void clear()
+    /**
+     * @brief Erase all locators from the container.
+     */
+    FASTDDS_EXPORTED_API void clear()
     {
         return m_locators.clear();
     }
 
-    RTPS_DllAPI void reserve(
+    /**
+     * @brief Reserve storage increasing the capacity of the vector.
+     *
+     * @param num new capacity of the vector, in number of elements.
+     */
+    FASTDDS_EXPORTED_API void reserve(
             size_t num)
     {
         return m_locators.reserve(num);
     }
 
-    RTPS_DllAPI void resize(
+    /**
+     * @brief Resize the container to contain @c num locators.
+     *        If the current size is greater than @c num, the container is reduced to its first @c num locators.
+     *        If the current size is less than count, additional default-inserted locators are appended.
+     *
+     * @param num new size of the container.
+     */
+    FASTDDS_EXPORTED_API void resize(
             size_t num)
     {
         return m_locators.resize(num);
     }
 
-    RTPS_DllAPI void push_back(
+    /**
+     * @brief Add locator to the end if not found within the list.
+     *
+     * @param loc locator to be appended.
+     */
+    FASTDDS_EXPORTED_API void push_back(
             const Locator& loc)
     {
         bool already = false;
@@ -223,7 +295,12 @@ public:
         }
     }
 
-    RTPS_DllAPI void push_back(
+    /**
+     * @brief Add several locators to the end if not already present within the list.
+     *
+     * @param locList LocatorList with the locators to be appended.
+     */
+    FASTDDS_EXPORTED_API void push_back(
             const LocatorList& locList)
     {
         for (auto it = locList.m_locators.begin(); it != locList.m_locators.end(); ++it)
@@ -232,12 +309,22 @@ public:
         }
     }
 
-    RTPS_DllAPI bool empty() const
+    /**
+     * @brief Check that the container has no locators.
+     *
+     * @return true if the container is empty. False otherwise.
+     */
+    FASTDDS_EXPORTED_API bool empty() const
     {
         return m_locators.empty();
     }
 
-    RTPS_DllAPI void erase(
+    /**
+     * @brief Erase the specified locator from the container.
+     *
+     * @param loc Locator to be removed.
+     */
+    FASTDDS_EXPORTED_API void erase(
             const Locator& loc)
     {
         auto it = std::find(m_locators.begin(), m_locators.end(), loc);
@@ -247,33 +334,12 @@ public:
         }
     }
 
-    FASTDDS_DEPRECATED_UNTIL(3, "eprosima::fastrtps::rtps::LocatorList::contains(const Locator&)",
-            "Unused method.")
-    RTPS_DllAPI bool contains(
-            const Locator& loc)
-    {
-        for (LocatorListIterator it = this->begin(); it != this->end(); ++it)
-        {
-            if (IsAddressDefined(*it))
-            {
-                if (loc == *it)
-                {
-                    return true;
-                }
-            }
-            else
-            {
-                if (loc.kind == (*it).kind && loc.port == (*it).port)
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    RTPS_DllAPI bool isValid() const
+    /**
+     * @brief Check that every locator contained in the list is not LOCATOR_KIND_INVALID.
+     *
+     * @return true if all locators are valid. False otherwise.
+     */
+    FASTDDS_EXPORTED_API bool isValid() const
     {
         for (LocatorListConstIterator it = this->begin(); it != this->end(); ++it)
         {
@@ -285,10 +351,40 @@ public:
         return true;
     }
 
-    RTPS_DllAPI void swap(
+    /**
+     * @brief exchange the content of the container.
+     *
+     * @param locatorList container to exchange the contents with.
+     */
+    FASTDDS_EXPORTED_API void swap(
             LocatorList& locatorList)
     {
         this->m_locators.swap(locatorList.m_locators);
+    }
+
+    // Check if there are specific transport locators associated
+    // the template parameter is the locator kind (e.g. LOCATOR_KIND_UDPv4)
+    template<int kind> bool has_kind() const
+    {
+        for (auto& loc : m_locators)
+        {
+            if ( kind == loc.kind )
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Copy the inner locator list to a ResourceLimitedVector locator list.
+    FASTDDS_EXPORTED_API void copy_to(
+            eprosima::fastdds::ResourceLimitedVector<Locator>& locator_list) const
+    {
+        for (auto& locator : m_locators)
+        {
+            locator_list.emplace_back(locator);
+        }
     }
 
 private:
@@ -296,6 +392,16 @@ private:
     std::vector<Locator> m_locators;
 };
 
+/**
+ * @brief Insertion operator: serialize a locator list.
+ *        The deserialization format is [locator1,locator2,...,locatorN].
+ *        Each individual locator within the list must follow the serialization format explained in the locator insertion
+ *        operator.
+ *
+ * @param output Output stream where the serialized locator list is appended.
+ * @param locList Locator list to be serialized/inserted.
+ * @return \c std::ostream& Reference to the output stream with the serialized locator list appended.
+ */
 inline std::ostream& operator <<(
         std::ostream& output,
         const LocatorList& locList)
@@ -317,6 +423,16 @@ inline std::ostream& operator <<(
     return output;
 }
 
+/**
+ * @brief Extraction operator: deserialize a list of locators.
+ *        The serialization format is [locator1,locator2,...,locatorN].
+ *        Each individual locator within the list must follow the deserialization format explained in the locator
+ *        extraction operator.
+ *
+ * @param input Input stream where the locator list to be deserialized is located.
+ * @param locList Locator list where the deserialized locators are saved.
+ * @return \c std::istream& Reference to the input stream after extracting the locator list.
+ */
 inline std::istream& operator >>(
         std::istream& input,
         LocatorList& locList)
@@ -349,7 +465,7 @@ inline std::istream& operator >>(
         catch (std::ios_base::failure& )
         {
             locList.clear();
-            logWarning(LOCATOR_LIST, "Error deserializing LocatorList");
+            EPROSIMA_LOG_WARNING(LOCATOR_LIST, "Error deserializing LocatorList");
         }
 
         input.exceptions(excp_mask);
@@ -358,8 +474,11 @@ inline std::istream& operator >>(
     return input;
 }
 
+using Locators = eprosima::fastdds::rtps::Locators;
+using LocatorList_t = eprosima::fastdds::rtps::LocatorList;
+
 } // namespace rtps
 } // namespace fastdds
 } // namespace eprosima
 
-#endif /* _FASTDDS_RTPS_COMMON_LOCATORLIST_HPP_ */
+#endif // FASTDDS_RTPS_COMMON__LOCATORLIST_HPP

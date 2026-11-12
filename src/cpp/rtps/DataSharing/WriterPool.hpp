@@ -19,9 +19,9 @@
 #ifndef RTPS_DATASHARING_WRITERPOOL_HPP
 #define RTPS_DATASHARING_WRITERPOOL_HPP
 
-#include <fastdds/rtps/common/CacheChange.h>
-#include <fastdds/rtps/writer/RTPSWriter.h>
-#include <fastdds/rtps/resources/ResourceManagement.h>
+#include <fastdds/rtps/attributes/ResourceManagement.hpp>
+#include <fastdds/rtps/common/CacheChange.hpp>
+#include <fastdds/rtps/writer/RTPSWriter.hpp>
 #include <fastdds/dds/log/Log.hpp>
 #include <rtps/DataSharing/DataSharingPayloadPool.hpp>
 #include <utils/collections/FixedSizeQueue.hpp>
@@ -29,7 +29,7 @@
 #include <memory>
 
 namespace eprosima {
-namespace fastrtps {
+namespace fastdds {
 namespace rtps {
 
 class WriterPool : public DataSharingPayloadPool
@@ -43,13 +43,12 @@ public:
         : max_data_size_(payload_size)
         , pool_size_(pool_size)
         , free_history_size_(0)
-        , writer_(nullptr)
     {
     }
 
     ~WriterPool()
     {
-        logInfo(DATASHARING_PAYLOADPOOL, "DataSharingPayloadPool::WriterPool destructor");
+        EPROSIMA_LOG_INFO(DATASHARING_PAYLOADPOOL, "DataSharingPayloadPool::WriterPool destructor");
 
         // We cannot destroy the objects in the SHM, as the Reader may still be using them.
         // We just remove the segment, and when the Reader closes it, it will be removed from the system.
@@ -61,55 +60,46 @@ public:
 
     bool get_payload(
             uint32_t /*size*/,
-            CacheChange_t& cache_change) override
+            SerializedPayload_t& payload) override
     {
         if (free_payloads_.empty())
         {
             return false;
         }
 
-        PayloadNode* payload = free_payloads_.front();
+        PayloadNode* payload_node = free_payloads_.front();
         free_payloads_.pop_front();
         // Reset all the metadata to signal the reader that the payload is dirty
-        payload->reset();
+        payload_node->reset();
 
-        cache_change.serializedPayload.data = payload->data();
-        cache_change.serializedPayload.max_size = max_data_size_;
-        cache_change.payload_owner(this);
+        payload.data = payload_node->data();
+        payload.max_size = max_data_size_;
+        payload.payload_owner = this;
 
         return true;
     }
 
     bool get_payload(
-            SerializedPayload_t& data,
-            IPayloadPool*& data_owner,
-            CacheChange_t& cache_change) override
+            const SerializedPayload_t& data,
+            SerializedPayload_t& payload) override
     {
-        assert(cache_change.writerGUID != GUID_t::unknown());
-        assert(cache_change.sequenceNumber != SequenceNumber_t::unknown());
-
-        if (data_owner == this)
+        if (data.payload_owner == this)
         {
-            cache_change.serializedPayload.data = data.data;
-            cache_change.serializedPayload.length = data.length;
-            cache_change.serializedPayload.max_size = data.length;
-            cache_change.payload_owner(this);
+            payload.data = data.data;
+            payload.length = data.length;
+            payload.max_size = data.length;
+            payload.is_serialized_key = data.is_serialized_key;
+            payload.payload_owner = this;
             return true;
         }
         else
         {
-            if (get_payload(data.length, cache_change))
+            if (get_payload(data.length, payload))
             {
-                if (!cache_change.serializedPayload.copy(&data, true))
+                if (!payload.copy(&data, true))
                 {
-                    release_payload(cache_change);
+                    release_payload(payload);
                     return false;
-                }
-
-                if (data_owner == nullptr)
-                {
-                    data_owner = this;
-                    data.data = cache_change.serializedPayload.data;
                 }
 
                 return true;
@@ -120,80 +110,88 @@ public:
     }
 
     bool release_payload(
-            CacheChange_t& cache_change) override
+            SerializedPayload_t& payload) override
     {
-        assert(cache_change.payload_owner() == this);
+        assert(payload.payload_owner == this);
 
         // Payloads are reset on the `get` operation, the `release` leaves the data to give more chances to the reader
-        PayloadNode* payload = PayloadNode::get_from_data(cache_change.serializedPayload.data);
-        if (payload->has_been_removed())
+        PayloadNode* payload_node = PayloadNode::get_from_data(payload.data);
+        if (payload_node->has_been_removed())
         {
             advance_till_first_non_removed();
         }
         else
         {
-            free_payloads_.push_back(payload);
+            free_payloads_.push_back(payload_node);
         }
-        logInfo(DATASHARING_PAYLOADPOOL, "Change released with SN " << cache_change.sequenceNumber);
+        EPROSIMA_LOG_INFO(DATASHARING_PAYLOADPOOL, "Serialized payload released.");
 
-        return DataSharingPayloadPool::release_payload(cache_change);
+        return DataSharingPayloadPool::release_payload(payload);
     }
 
-    template <typename T>
+    template<typename T>
     bool init_shared_segment(
             const RTPSWriter* writer,
             const std::string& shared_dir)
     {
-        writer_ = writer;
-        segment_id_ = writer_->getGuid();
+        segment_id_ = writer->getGuid();
         segment_name_ = generate_segment_name(shared_dir, segment_id_);
-
-        // We need to reserve the whole segment at once, and the underlying classes use uint32_t as size type.
-        // In order to avoid overflows, we will calculate using uint64 and check the casting
-        bool overflow = false;
-        size_t per_allocation_extra_size = T::compute_per_allocation_extra_size(
-            alignof(PayloadNode), DataSharingPayloadPool::domain_name());
-        size_t payload_size = DataSharingPayloadPool::node_size(max_data_size_);
-
-        uint64_t estimated_size_for_payloads_pool = pool_size_ * payload_size;
-        overflow |= (estimated_size_for_payloads_pool != static_cast<uint32_t>(estimated_size_for_payloads_pool));
-        uint32_t size_for_payloads_pool = static_cast<uint32_t>(estimated_size_for_payloads_pool);
-
-        //Reserve one extra to avoid pointer overlapping
-        uint64_t estimated_size_for_history = (pool_size_ + 1) * sizeof(Segment::Offset);
-        overflow |= (estimated_size_for_history != static_cast<uint32_t>(estimated_size_for_history));
-        uint32_t size_for_history = static_cast<uint32_t>(estimated_size_for_history);
-
-        uint32_t descriptor_size = static_cast<uint32_t>(sizeof(PoolDescriptor));
-        uint64_t estimated_segment_size = size_for_payloads_pool + per_allocation_extra_size +
-                size_for_history + per_allocation_extra_size +
-                descriptor_size + per_allocation_extra_size;
-        overflow |= (estimated_segment_size != static_cast<uint32_t>(estimated_segment_size));
-        uint32_t segment_size = static_cast<uint32_t>(estimated_segment_size);
-
-        if (overflow)
-        {
-            logError(DATASHARING_PAYLOADPOOL, "Failed to create segment " << segment_name_
-                                                                          << ": Segment size is too large: " << estimated_size_for_payloads_pool
-                                                                          << " (max is " << std::numeric_limits<uint32_t>::max() << ")."
-                                                                          << " Please reduce the maximum size of the history");
-            return false;
-        }
-
-        //Open the segment
-        T::remove(segment_name_);
         std::unique_ptr<T> local_segment;
+        size_t payload_size;
+        uint64_t estimated_size_for_payloads_pool;
+        uint64_t estimated_size_for_history;
+        uint32_t size_for_payloads_pool;
+
         try
         {
-            local_segment = std::unique_ptr<T>(
+            // We need to reserve the whole segment at once, and the underlying classes use uint32_t as size type.
+            // In order to avoid overflows, we will calculate using uint64 and check the casting
+            bool overflow = false;
+            size_t per_allocation_extra_size = T::compute_per_allocation_extra_size(
+                alignof(PayloadNode), DataSharingPayloadPool::domain_name());
+            payload_size = DataSharingPayloadPool::node_size(max_data_size_);
+
+            estimated_size_for_payloads_pool = pool_size_ * payload_size;
+            overflow |= (estimated_size_for_payloads_pool != static_cast<uint32_t>(estimated_size_for_payloads_pool));
+            size_for_payloads_pool = static_cast<uint32_t>(estimated_size_for_payloads_pool);
+
+            //Reserve one extra to avoid pointer overlapping
+            estimated_size_for_history = (pool_size_ + 1) * sizeof(Segment::Offset);
+            overflow |= (estimated_size_for_history != static_cast<uint32_t>(estimated_size_for_history));
+            uint32_t size_for_history = static_cast<uint32_t>(estimated_size_for_history);
+
+            uint32_t descriptor_size = static_cast<uint32_t>(sizeof(PoolDescriptor));
+            uint64_t estimated_segment_size = size_for_payloads_pool + per_allocation_extra_size +
+                    size_for_history + per_allocation_extra_size +
+                    descriptor_size + per_allocation_extra_size;
+            overflow |= (estimated_segment_size != static_cast<uint32_t>(estimated_segment_size));
+            uint32_t segment_size = static_cast<uint32_t>(estimated_segment_size);
+
+            if (overflow)
+            {
+                EPROSIMA_LOG_ERROR(DATASHARING_PAYLOADPOOL, "Failed to create segment " << segment_name_
+                                                                                        <<
+                        ": Segment size is too large: " << estimated_size_for_payloads_pool
+                                                                                        << " (max is "
+                                                                                        << (std::numeric_limits<uint32_t>
+                        ::max)() << ")."
+                                                                                        <<
+                        " Please reduce the maximum size of the history");
+                return false;
+            }
+
+            //Open the segment
+            T::remove(segment_name_);
+
+            local_segment.reset(
                 new T(boost::interprocess::create_only,
                 segment_name_,
                 segment_size + T::EXTRA_SEGMENT_SIZE));
         }
         catch (const std::exception& e)
         {
-            logError(DATASHARING_PAYLOADPOOL, "Failed to create segment " << segment_name_
-                                                                          << ": " << e.what());
+            EPROSIMA_LOG_ERROR(DATASHARING_PAYLOADPOOL, "Failed to create segment " << segment_name_
+                                                                                    << ": " << e.what());
             return false;
         }
 
@@ -235,8 +233,8 @@ public:
         {
             T::remove(segment_name_);
 
-            logError(DATASHARING_PAYLOADPOOL, "Failed to initialize segment " << segment_name_
-                                                                              << ": " << e.what());
+            EPROSIMA_LOG_ERROR(DATASHARING_PAYLOADPOOL, "Failed to initialize segment " << segment_name_
+                                                                                        << ": " << e.what());
             return false;
         }
 
@@ -268,7 +266,7 @@ public:
     {
         assert(cache_change);
         assert(cache_change->serializedPayload.data);
-        assert(cache_change->payload_owner() == this);
+        assert(cache_change->serializedPayload.payload_owner == this);
         assert(free_history_size_ > 0);
 
         // Fill the payload metadata with the change info
@@ -288,7 +286,7 @@ public:
 
         // Add it to the history
         history_[static_cast<uint32_t>(descriptor_->notified_end)] = segment_->get_offset_from_address(node);
-        logInfo(DATASHARING_PAYLOADPOOL, "Change added to shared history"
+        EPROSIMA_LOG_INFO(DATASHARING_PAYLOADPOOL, "Change added to shared history"
                 << " with SN " << cache_change->sequenceNumber);
         advance(descriptor_->notified_end);
         --free_history_size_;
@@ -306,11 +304,11 @@ public:
     {
         assert(cache_change);
         assert(cache_change->serializedPayload.data);
-        assert(cache_change->payload_owner() == this);
+        assert(cache_change->serializedPayload.payload_owner == this);
         assert(descriptor_->notified_end != descriptor_->notified_begin);
         assert(free_history_size_ < descriptor_->history_size);
 
-        logInfo(DATASHARING_PAYLOADPOOL, "Change removed from shared history"
+        EPROSIMA_LOG_INFO(DATASHARING_PAYLOADPOOL, "Change removed from shared history"
                 << " with SN " << cache_change->sequenceNumber);
 
         PayloadNode* payload = PayloadNode::get_from_data(cache_change->serializedPayload.data);
@@ -347,6 +345,8 @@ public:
 
 private:
 
+    using DataSharingPayloadPool::init_shared_memory;
+
     octet* payloads_pool_;          //< Shared pool of payloads
 
     uint32_t max_data_size_;        //< Maximum size of the serialized payload data
@@ -355,15 +355,13 @@ private:
 
     FixedSizeQueue<PayloadNode*> free_payloads_;    //< Pointers to the free payloads in the pool
 
-    const RTPSWriter* writer_;      //< Writer that is owner of the pool
-
     bool is_initialized_ = false;   //< Whether the pool has been initialized on shared memory
 
 };
 
 
 }  // namespace rtps
-}  // namespace fastrtps
+}  // namespace fastdds
 }  // namespace eprosima
 
 #endif  // RTPS_DATASHARING_WRITERPOOL_HPP

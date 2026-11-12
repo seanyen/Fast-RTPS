@@ -15,10 +15,12 @@
 #include <gtest/gtest.h>
 
 #include <rtps/history/TopicPayloadPool.hpp>
+#include <fastdds/rtps/common/CacheChange.hpp>
 
+#include <limits>
 #include <tuple>
 
-using namespace eprosima::fastrtps::rtps;
+using namespace eprosima::fastdds::rtps;
 using namespace ::testing;
 using namespace std;
 
@@ -154,7 +156,7 @@ protected:
             CacheChange_t* ch = new CacheChange_t();
             cache_changes.push_back(ch);
 
-            ASSERT_TRUE(pool->get_payload(data_size, *ch));
+            ASSERT_TRUE(pool->get_payload(data_size, ch->serializedPayload));
             ASSERT_NE(ch->serializedPayload.data, nullptr);
 
             switch (memory_policy)
@@ -180,13 +182,13 @@ protected:
             CacheChange_t* ch = new CacheChange_t();
             cache_changes.push_back(ch);
 
-            ASSERT_TRUE(pool->get_payload(payload_size, *ch));
+            ASSERT_TRUE(pool->get_payload(payload_size, ch->serializedPayload));
         }
         else
         {
             CacheChange_t* ch = new CacheChange_t();
 
-            ASSERT_FALSE(pool->get_payload(payload_size, *ch));
+            ASSERT_FALSE(pool->get_payload(payload_size, ch->serializedPayload));
             delete ch;
         }
 
@@ -199,16 +201,16 @@ protected:
 
             ch->writerGUID = GUID_t(GuidPrefix_t(), 1);
             ch->sequenceNumber = SequenceNumber_t(0, i);
-            IPayloadPool* owner = cache_changes[i]->payload_owner();
-            ASSERT_TRUE(pool->get_payload(cache_changes[i]->serializedPayload, owner, *ch));
+            IPayloadPool* owner = cache_changes[i]->serializedPayload.payload_owner;
+            ASSERT_TRUE(pool->get_payload(cache_changes[i]->serializedPayload, ch->serializedPayload));
             ASSERT_NE(ch->serializedPayload.data, nullptr);
             ASSERT_EQ(ch->serializedPayload.data, cache_changes[i]->serializedPayload.data);
-            ASSERT_EQ(ch->payload_owner(), owner);
+            ASSERT_EQ(ch->serializedPayload.payload_owner, owner);
         }
 
         for (CacheChange_t* ch : cache_changes)
         {
-            ASSERT_TRUE(pool->release_payload(*ch));
+            ASSERT_TRUE(pool->release_payload(ch->serializedPayload));
             delete ch;
         }
         cache_changes.clear();
@@ -326,6 +328,66 @@ protected:
     uint32_t num_of_infinite_histories;         //< Number of infinite histories reserved
 };
 
+void do_dynamic_topic_payload_pool_zero_size_test(
+        const PoolConfig& config)
+{
+    //! Create Pool
+    std::unique_ptr<ITopicPayloadPool> pool = TopicPayloadPool::get(config);
+
+    //! Update maximum size of the pool
+    pool->reserve_history(config, false);
+
+    //! Temporal CacheChange with no payload owner
+    CacheChange_t* change = new CacheChange_t();
+
+    //! A CacheChange to copy to
+    CacheChange_t* change_to_add = new CacheChange_t();
+
+    //! Fill minimum fields
+    change_to_add->writerGUID = GUID_t(GuidPrefix_t(), 1);
+    change_to_add->sequenceNumber = SequenceNumber_t(0, 1);
+
+    //! get the payload of size 0.
+    //! Allocate it on the pool
+    //! Set change_to_add owner
+    ASSERT_TRUE(pool->get_payload(change->serializedPayload, change_to_add->serializedPayload));
+
+    //! Now set the payload ownership on the source change
+    pool->get_payload(change_to_add->serializedPayload, change->serializedPayload);
+
+    //! Release the payload from the source change
+    pool->release_payload(change->serializedPayload);
+
+    //! Temporal CacheChange whose payload is owned by the pool
+    CacheChange_t* another_change = new CacheChange_t();
+
+    //! Max size was reached, should fail
+    ASSERT_FALSE(pool->get_payload(0, another_change->serializedPayload));
+
+    //! Release the second payload owner
+    pool->release_payload(change_to_add->serializedPayload);
+
+    //! Now a free cache is avaiable
+    ASSERT_TRUE(pool->get_payload(0, another_change->serializedPayload));
+
+    ASSERT_TRUE(pool->get_payload(another_change->serializedPayload, change_to_add->serializedPayload));
+
+    //! Release
+    pool->release_payload(another_change->serializedPayload);
+    pool->release_payload(change_to_add->serializedPayload);
+
+    //! Release history
+    pool->release_history(config, false);
+
+    //! Expect the available sizes after releasing
+    EXPECT_EQ(pool->payload_pool_available_size(), 0u);
+    EXPECT_EQ(pool->payload_pool_allocated_size(), 0u);
+
+    delete change_to_add;
+    delete another_change;
+    delete change;
+}
+
 TEST_P(TopicPayloadPoolTests, reserve_history_reader_same_size)
 {
     // A new history reserved for a reader. Same limits as fixture.
@@ -404,6 +466,65 @@ TEST_P(TopicPayloadPoolTests, release_history_writer_finite_size)
     uint32_t reserve_size = test_input_pool_size;
     uint32_t reserve_max_size = 100;
     do_history_test(reserve_size, reserve_max_size, false);
+}
+
+//! This unittest was introduced as part of #1929
+//! Claiming a payload with size 0 is properly handled with DYNAMIC_RESERVED Memory Mode
+TEST(TopicPayloalPoolTests, dynamic_reserve_memory_zero_size)
+{
+    PoolConfig config{ DYNAMIC_RESERVE_MEMORY_MODE, 128, 0, 1};
+    do_dynamic_topic_payload_pool_zero_size_test(config);
+}
+
+//! This unittest was introduced as part of #1929
+//! Claiming a payload with size 0 is properly handled with DYNAMIC_REUSABLE Memory Modes
+TEST(TopicPayloalPoolTests, dynamic_reusable_memory_zero_size)
+{
+    PoolConfig config{ DYNAMIC_REUSABLE_MEMORY_MODE, 128, 0, 1};
+    do_dynamic_topic_payload_pool_zero_size_test(config);
+}
+
+//! Regression test for redmine issue #25475
+//! When the allocation of a new payload node fails, the pool must report the
+//! failure gracefully (returning false) instead of letting the std::bad_alloc
+//! thrown by the PayloadNode constructor propagate out of get_payload.
+//! Might require to be run in a constrained environment (i.e. container with limited memory)
+//! to actually trigger the allocation failure, but will not fail if the allocation succeeds.
+TEST(TopicPayloalPoolTests, bad_alloc_on_get_payload_is_handled)
+{
+    // An infinite history so that the pool is allowed to allocate on demand
+    // (otherwise allocate() would short-circuit on the maximum pool size).
+    PoolConfig config{ DYNAMIC_RESERVE_MEMORY_MODE, 128, 0, 0 };
+
+    std::unique_ptr<ITopicPayloadPool> pool = TopicPayloadPool::get(config);
+    ASSERT_NE(pool, nullptr);
+    pool->reserve_history(config, false);
+
+    // Request a payload so large that the underlying calloc is expected to fail,
+    // making the PayloadNode constructor throw std::bad_alloc.
+    constexpr uint32_t huge_size = (std::numeric_limits<uint32_t>::max)();
+
+    CacheChange_t change;
+    bool result = true;
+
+    // The pool must never let the exception escape.
+    EXPECT_NO_THROW(result = pool->get_payload(huge_size, change.serializedPayload));
+
+    if (result)
+    {
+        // On a platform able to satisfy such a large allocation, release it.
+        EXPECT_EQ(huge_size, change.serializedPayload.max_size);
+        pool->release_payload(change.serializedPayload);
+    }
+    else
+    {
+        // On allocation failure the payload must be left in a clean state.
+        EXPECT_EQ(change.serializedPayload.data, nullptr);
+        EXPECT_EQ(change.serializedPayload.max_size, 0u);
+        EXPECT_EQ(change.serializedPayload.payload_owner, nullptr);
+    }
+
+    pool->release_history(config, false);
 }
 
 #ifdef INSTANTIATE_TEST_SUITE_P

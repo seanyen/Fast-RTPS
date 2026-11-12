@@ -16,16 +16,15 @@
  * @file Topic.hpp
  */
 
-#ifndef _FASTDDS_TOPIC_HPP_
-#define _FASTDDS_TOPIC_HPP_
+#ifndef FASTDDS_DDS_TOPIC__TOPIC_HPP
+#define FASTDDS_DDS_TOPIC__TOPIC_HPP
 
-#include <fastrtps/fastrtps_dll.h>
+#include <fastdds/fastdds_dll.hpp>
 #include <fastdds/dds/core/Entity.hpp>
+#include <fastdds/dds/core/ReturnCode.hpp>
 #include <fastdds/dds/core/status/BaseStatus.hpp>
 #include <fastdds/dds/topic/TopicDescription.hpp>
 #include <fastdds/dds/topic/qos/TopicQos.hpp>
-
-using eprosima::fastrtps::types::ReturnCode_t;
 
 namespace dds {
 namespace topic {
@@ -42,29 +41,30 @@ namespace dds {
 class DomainParticipant;
 class TopicListener;
 class DomainParticipantImpl;
-class TopicImpl;
+class TopicProxy;
 
 /**
- * Class TopicDescription, represents the fact that both publications
+ * Class Topic, represents the fact that both publications
  * and subscriptions are tied to a single data-type
+ *
  * @ingroup FASTDDS_MODULE
  */
 class Topic : public DomainEntity, public TopicDescription
 {
-    friend class TopicImpl;
+    friend class TopicProxy;
     friend class DomainParticipantImpl;
 
     /**
      * Create a topic, assigning its pointer to the associated implementation.
      * Don't use directly, create Topic using create_topic from DomainParticipant.
      */
-    RTPS_DllAPI Topic(
+    Topic(
             const std::string& topic_name,
             const std::string& type_name,
-            TopicImpl* p,
+            TopicProxy* p,
             const StatusMask& mask = StatusMask::all());
 
-    RTPS_DllAPI Topic(
+    Topic(
             DomainParticipant* dp,
             const std::string& topic_name,
             const std::string& type_name,
@@ -74,82 +74,83 @@ class Topic : public DomainEntity, public TopicDescription
 
 public:
 
-    /**
-     * @brief Destructor
-     */
-    RTPS_DllAPI virtual ~Topic();
+    virtual ~Topic();
 
     /**
      * @brief Getter for the DomainParticipant
+     *
      * @return DomainParticipant pointer
      */
     virtual DomainParticipant* get_participant() const override;
 
     /**
      * Allows the application to retrieve the INCONSISTENT_TOPIC_STATUS status of a Topic.
+     *
      * @param status [out] Status to be retrieved.
      * @return RETCODE_OK
+     * @warning Not supported yet. Currently returns RETCODE_UNSUPPORTED
      */
-    ReturnCode_t get_inconsistent_topic_status(
+    FASTDDS_EXPORTED_API ReturnCode_t get_inconsistent_topic_status(
             InconsistentTopicStatus& status);
 
     /**
      * Allows accessing the Topic Qos.
+     *
      * @return reference to TopicQos
      */
-    RTPS_DllAPI const TopicQos& get_qos() const;
+    FASTDDS_EXPORTED_API const TopicQos& get_qos() const;
 
     /**
      * Retrieves the Topic Qos.
+     *
      * @param qos TopicQos where the qos is returned
      * @return RETCODE_OK
      */
-    RTPS_DllAPI ReturnCode_t get_qos(
+    FASTDDS_EXPORTED_API ReturnCode_t get_qos(
             TopicQos& qos) const;
 
     /**
      * Allows modifying the Topic Qos.
      * The given Qos must be supported by the Topic.
+     *
      * @param qos new TopicQos value to set for the Topic.
      * @retval RETCODE_IMMUTABLE_POLICY if a change was not allowed.
      * @retval RETCODE_INCONSISTENT_POLICY if new qos has inconsistent values.
      * @retval RETCODE_OK if qos was updated.
      */
-    RTPS_DllAPI ReturnCode_t set_qos(
+    FASTDDS_EXPORTED_API ReturnCode_t set_qos(
             const TopicQos& qos);
 
     /**
      * Retrieves the attached TopicListener.
+     *
      * @return pointer to TopicListener
      */
-    RTPS_DllAPI const TopicListener* get_listener() const;
+    FASTDDS_EXPORTED_API const TopicListener* get_listener() const;
 
     /**
      * Modifies the TopicListener.
+     *
      * @param listener new value for the TopicListener
      * @param mask StatusMask that holds statuses the listener responds to (default: all).
      * @return RETCODE_OK
      */
-    RTPS_DllAPI ReturnCode_t set_listener(
+    FASTDDS_EXPORTED_API ReturnCode_t set_listener(
             TopicListener* listener,
             const StatusMask& mask = StatusMask::all());
 
-    /**
-     * @brief Getter for the TopicDescriptionImpl
-     * @return pointer to TopicDescriptionImpl
-     */
     TopicDescriptionImpl* get_impl() const override;
 
 protected:
 
-    TopicImpl* impl_;
+    TopicProxy* impl_;
 
     friend class ::dds::topic::Topic;
 
 };
 
-} /* namespace dds */
-} /* namespace fastdds */
-} /* namespace eprosima */
+} // namespace dds
+} // namespace fastdds
+} // namespace eprosima
 
-#endif /* _FASTDDS_TOPIC_HPP_ */
+#endif // FASTDDS_DDS_TOPIC__TOPIC_HPP

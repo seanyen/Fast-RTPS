@@ -16,18 +16,22 @@
  * @file VideoTestSubscriber.cpp
  *
  */
+#include "VideoTestSubscriber.hpp"
 
 #include "VideoTestSubscriber.hpp"
-#include <fastdds/dds/log/Log.hpp>
-#include "fastrtps/log/Colors.h"
-#include <fastrtps/xmlparser/XMLProfileManager.h>
-#include <numeric>
+
 #include <cmath>
 #include <fstream>
+#include <numeric>
+#include <thread>
+
+#include <fastdds/dds/log/Colors.hpp>
+#include <fastdds/dds/log/Log.hpp>
+#include <gtest/gtest.h>
 
 using namespace eprosima;
-using namespace eprosima::fastrtps;
-using namespace eprosima::fastrtps::rtps;
+using namespace eprosima::fastdds::dds;
+using namespace eprosima::fastdds;
 
 using std::cout;
 using std::endl;
@@ -68,7 +72,38 @@ VideoTestSubscriber::~VideoTestSubscriber()
 {
     stop();
 
-    Domain::removeParticipant(mp_participant);
+    if (mp_participant != nullptr)
+    {
+        if (mp_commandsub)
+        {
+            if (mp_commanhd_dr)
+            {
+                mp_commandsub->delete_datareader(mp_commanhd_dr);
+            }
+            mp_participant->delete_subscriber(mp_commandsub);
+        }
+        if (mp_datasub)
+        {
+            if (mp_data_dr)
+            {
+                mp_datasub->delete_datareader(mp_data_dr);
+            }
+            mp_participant->delete_subscriber(mp_datasub);
+        }
+        if (mp_commandpub)
+        {
+            if (mp_dw)
+            {
+                mp_commandpub->delete_datawriter(mp_dw);
+            }
+            mp_participant->delete_publisher(mp_commandpub);
+        }
+        if (mp_command_sub_topic)
+        {
+            mp_participant->delete_topic(mp_command_sub_topic);
+        }
+        DomainParticipantFactory::get_instance()->delete_participant(mp_participant);
+    }
 
     if (gmain_loop_ != nullptr)
     {
@@ -78,17 +113,25 @@ VideoTestSubscriber::~VideoTestSubscriber()
     }
 
     gst_bin_remove_many(GST_BIN(pipeline), appsrc, videoconvert, sink, NULL);
-    //if (pipeline)   gst_object_unref(GST_OBJECT(pipeline)), pipeline = nullptr;
-    //if (sink)   gst_object_unref(GST_OBJECT(sink)), sink = nullptr;
-    //if (videoconvert)   gst_object_unref(GST_OBJECT(videoconvert)), videoconvert = nullptr;
-    //if (appsrc)   gst_object_unref(GST_OBJECT(appsrc)), appsrc = nullptr;
+
     thread_.join();
 }
 
-bool VideoTestSubscriber::init(int nsam, bool reliable, uint32_t pid, bool hostname,
-        const PropertyPolicy& part_property_policy, const PropertyPolicy& property_policy, bool large_data,
-        const std::string& sXMLConfigFile, bool export_csv, const std::string& export_prefix,
-        int forced_domain, int video_width, int video_height, int frame_rate)
+void VideoTestSubscriber::init(
+        int nsam,
+        bool reliable,
+        uint32_t pid,
+        bool hostname,
+        const eprosima::fastdds::rtps::PropertyPolicy& part_property_policy,
+        const eprosima::fastdds::rtps::PropertyPolicy& property_policy,
+        bool large_data,
+        const std::string& sXMLConfigFile,
+        bool export_csv,
+        const std::string& export_prefix,
+        int forced_domain,
+        int video_width,
+        int video_height,
+        int frame_rate)
 {
     large_data = true;
     m_sXMLConfigFile = sXMLConfigFile;
@@ -103,140 +146,163 @@ bool VideoTestSubscriber::init(int nsam, bool reliable, uint32_t pid, bool hostn
 
     InitGStreamer();
 
-    // Create RTPSParticipant
+    // Create Participant
     std::string participant_profile_name = "sub_participant_profile";
-    ParticipantAttributes PParam;
+    DomainParticipantQos participant_qos;
 
-    if (m_forcedDomain >= 0)
-    {
-        PParam.domainId = m_forcedDomain;
-    }
-    else
-    {
-        PParam.domainId = pid % 230;
-    }
-    PParam.rtps.setName("video_test_subscriber");
-    PParam.rtps.properties = part_property_policy;
+    participant_qos.name("video_test_subscriber");
+
+    participant_qos.properties(part_property_policy);
 
     if (m_sXMLConfigFile.length() > 0)
     {
         if (m_forcedDomain >= 0)
         {
-            ParticipantAttributes participant_att;
-            if (eprosima::fastrtps::xmlparser::XMLP_ret::XML_OK ==
-                eprosima::fastrtps::xmlparser::XMLProfileManager::fillParticipantAttributes(participant_profile_name,
-                    participant_att))
-            {
-                participant_att.domainId = m_forcedDomain;
-                mp_participant = Domain::createParticipant(participant_att);
-            }
+            mp_participant = DomainParticipantFactory::get_instance()->create_participant_with_profile(m_forcedDomain,
+                            participant_profile_name);
         }
         else
         {
-            mp_participant = Domain::createParticipant(participant_profile_name);
+            mp_participant = DomainParticipantFactory::get_instance()->create_participant_with_profile(
+                participant_profile_name);
         }
     }
     else
     {
-        mp_participant = Domain::createParticipant(PParam);
+        if (m_forcedDomain >= 0)
+        {
+            mp_participant = DomainParticipantFactory::get_instance()->create_participant(
+                m_forcedDomain, participant_qos);
+        }
+        else
+        {
+            mp_participant = DomainParticipantFactory::get_instance()->create_participant(
+                pid % 230, participant_qos);
+        }
     }
 
-    if (mp_participant == nullptr)
-    {
-        return false;
-    }
+    ASSERT_NE(mp_participant, nullptr);
 
-    Domain::registerType(mp_participant, (TopicDataType*)&video_t);
-    Domain::registerType(mp_participant, (TopicDataType*)&command_t);
+    // Register the type
+    TypeSupport video_type;
+    TypeSupport command_type;
+    video_type.reset(new VideoDataType());
+    command_type.reset(new TestCommandDataType());
+    ASSERT_EQ(mp_participant->register_type(video_type), RETCODE_OK);
+    ASSERT_EQ(mp_participant->register_type(command_type), RETCODE_OK);
 
-    // Create Data subscriber
+    // Create Data Subscriber
     std::string profile_name = "subscriber_profile";
-    SubscriberAttributes SubDataparam;
-
-    if (reliable)
-    {
-        SubDataparam.qos.m_reliability.kind = RELIABLE_RELIABILITY_QOS;
-    }
-    SubDataparam.properties = property_policy;
-    if (large_data)
-    {
-        SubDataparam.historyMemoryPolicy = eprosima::fastrtps::rtps::PREALLOCATED_WITH_REALLOC_MEMORY_MODE;
-    }
 
     if (m_sXMLConfigFile.length() > 0)
     {
-        eprosima::fastrtps::xmlparser::XMLProfileManager::fillSubscriberAttributes(profile_name, SubDataparam);
+        mp_datasub = mp_participant->create_subscriber_with_profile(profile_name);
     }
+    else
+    {
+        mp_datasub = mp_participant->create_subscriber(SUBSCRIBER_QOS_DEFAULT);
+    }
+    ASSERT_NE(mp_datasub, nullptr);
+    ASSERT_TRUE(mp_datasub->is_enabled());
 
-    SubDataparam.topic.topicDataType = "VideoType";
-    SubDataparam.topic.topicKind = NO_KEY;
-    std::ostringstream st;
-    st << "VideoTest_";
+    // Create topic
+    std::ostringstream video_topic_name;
+    video_topic_name << "VideoTest_";
     if (hostname)
     {
-        st << asio::ip::host_name() << "_";
+        video_topic_name << asio::ip::host_name() << "_";
     }
-    st << pid << "_PUB2SUB";
-    SubDataparam.topic.topicName = st.str();
+    video_topic_name << pid << "_PUB2SUB";
+    mp_video_topic = mp_participant->create_topic(video_topic_name.str(),
+                    "VideoType", TOPIC_QOS_DEFAULT);
+    ASSERT_NE(mp_video_topic, nullptr);
+    ASSERT_TRUE(mp_video_topic->is_enabled());
 
-    mp_datasub = Domain::createSubscriber(mp_participant, SubDataparam, &this->m_datasublistener);
-    if (mp_datasub == nullptr)
+    // Create data DataReader
+    if (m_bReliable)
     {
-        std::cout << "Cannot create data subscriber" << std::endl;
-        return false;
+        datareader_qos_data.reliability().kind = eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS;
     }
+    else
+    {
+        datareader_qos_data.reliability().kind = eprosima::fastdds::dds::BEST_EFFORT_RELIABILITY_QOS;
+    }
+    datareader_qos_data.properties(property_policy);
+
+    if (large_data)
+    {
+        datareader_qos_data.endpoint().history_memory_policy =
+                eprosima::fastdds::rtps::PREALLOCATED_WITH_REALLOC_MEMORY_MODE;
+    }
+
+    mp_data_dr = mp_datasub->create_datareader(mp_video_topic, datareader_qos_data, &this->m_datasublistener);
+    ASSERT_NE(mp_data_dr, nullptr);
+    ASSERT_TRUE(mp_data_dr->is_enabled());
+
 
     // Create Command Publisher
-    PublisherAttributes PubCommandParam;
-    PubCommandParam.topic.topicDataType = "TestCommandType";
-    PubCommandParam.topic.topicKind = NO_KEY;
-    std::ostringstream pct;
-    pct << "VideoTest_Command_";
+    mp_commandpub = mp_participant->create_publisher(PUBLISHER_QOS_DEFAULT);
+
+    // Create topic
+    std::ostringstream pub_cmd_topic_name;
+    pub_cmd_topic_name << "VideoTest_Command_";
     if (hostname)
     {
-        pct << asio::ip::host_name() << "_";
+        pub_cmd_topic_name << asio::ip::host_name() << "_";
     }
-    pct << pid << "_SUB2PUB";
-    PubCommandParam.topic.topicName = pct.str();
-    PubCommandParam.topic.historyQos.kind = KEEP_ALL_HISTORY_QOS;
-    PubCommandParam.qos.m_reliability.kind = RELIABLE_RELIABILITY_QOS;
-    PubCommandParam.qos.m_durability.kind = TRANSIENT_LOCAL_DURABILITY_QOS;
+    pub_cmd_topic_name << pid << "_SUB2PUB";
 
-    mp_commandpub = Domain::createPublisher(mp_participant, PubCommandParam, &this->m_commandpublistener);
-    if (mp_commandpub == nullptr)
-    {
-        return false;
-    }
+    mp_command_pub_topic = mp_participant->create_topic(pub_cmd_topic_name.str(),
+                    "TestCommandType", TOPIC_QOS_DEFAULT);
+    ASSERT_NE(mp_command_pub_topic, nullptr);
+    ASSERT_TRUE(mp_command_pub_topic->is_enabled());
 
-    SubscriberAttributes SubCommandParam;
-    SubCommandParam.topic.topicDataType = "TestCommandType";
-    SubCommandParam.topic.topicKind = NO_KEY;
-    std::ostringstream sct;
-    sct << "VideoTest_Command_";
+    // Create DataWriter
+    datawriter_qos.history().kind = eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS;
+    datawriter_qos.reliability().kind = eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS;
+    datawriter_qos.durability().kind = eprosima::fastdds::dds::TRANSIENT_LOCAL_DURABILITY_QOS;
+    mp_dw = mp_commandpub->create_datawriter(mp_command_pub_topic, datawriter_qos,
+                    &this->m_commandpublistener);
+    ASSERT_NE(mp_dw, nullptr);
+    ASSERT_TRUE(mp_dw->is_enabled());
+
+
+    // Create Command Subscriber
+    mp_commandsub = mp_participant->create_subscriber(SUBSCRIBER_QOS_DEFAULT);
+    ASSERT_NE(mp_commandsub, nullptr);
+    ASSERT_TRUE(mp_commandsub->is_enabled());
+
+    // Create topic
+    std::ostringstream sub_cmd_topic_name;
+    sub_cmd_topic_name << "VideoTest_Command_";
     if (hostname)
     {
-        sct << asio::ip::host_name() << "_";
+        sub_cmd_topic_name << asio::ip::host_name() << "_";
     }
-    sct << pid << "_PUB2SUB";
-    SubCommandParam.topic.topicName = sct.str();
-    SubCommandParam.topic.historyQos.kind = KEEP_ALL_HISTORY_QOS;
-    SubCommandParam.qos.m_reliability.kind = RELIABLE_RELIABILITY_QOS;
-    SubCommandParam.qos.m_durability.kind = TRANSIENT_LOCAL_DURABILITY_QOS;
+    sub_cmd_topic_name << pid << "_PUB2SUB";
+    mp_command_sub_topic = mp_participant->create_topic(sub_cmd_topic_name.str(),
+                    "TestCommandType", TOPIC_QOS_DEFAULT);
+    ASSERT_NE(mp_command_sub_topic, nullptr);
+    ASSERT_TRUE(mp_command_sub_topic->is_enabled());
 
-    mp_commandsub = Domain::createSubscriber(mp_participant, SubCommandParam, &this->m_commandsublistener);
-    if (mp_commandsub == nullptr)
-    {
-        return false;
-    }
-    return true;
+    datareader_qos_cmd.history().kind = eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS;
+    datareader_qos_cmd.reliability().kind = eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS;
+    datareader_qos_cmd.durability().kind = eprosima::fastdds::dds::TRANSIENT_LOCAL_DURABILITY_QOS;
+
+    mp_commanhd_dr = mp_commandsub->create_datareader(mp_command_sub_topic, datareader_qos_cmd,
+                    &this->m_commandsublistener);
+    ASSERT_NE(mp_commanhd_dr, nullptr);
+    ASSERT_TRUE(mp_commanhd_dr->is_enabled());
 }
 
-void VideoTestSubscriber::DataSubListener::onSubscriptionMatched(Subscriber* /*sub*/,MatchingInfo& info)
+void VideoTestSubscriber::DataSubListener::on_subscription_matched(
+        DataReader* /*datareader*/,
+        const SubscriptionMatchedStatus& info)
 {
     std::unique_lock<std::mutex> lock(mp_up->mutex_);
-    if(info.status == MATCHED_MATCHING)
+    if (info.current_count_change > 0)
     {
-        logInfo(VideoTest,"Data Sub Matched ");
+        EPROSIMA_LOG_INFO(VideoTest, "Data Sub Matched ");
         std::cout << "Data Sub Matched " << std::endl;
         ++mp_up->disc_count_;
     }
@@ -251,13 +317,15 @@ void VideoTestSubscriber::DataSubListener::onSubscriptionMatched(Subscriber* /*s
     mp_up->disc_cond_.notify_one();
 }
 
-void VideoTestSubscriber::CommandPubListener::onPublicationMatched(Publisher* /*pub*/,MatchingInfo& info)
+void VideoTestSubscriber::CommandPubListener::on_publication_matched(
+        DataWriter* /*datawriter*/,
+        const PublicationMatchedStatus& info)
 {
     std::unique_lock<std::mutex> lock(mp_up->mutex_);
 
-    if(info.status == MATCHED_MATCHING)
+    if (info.current_count_change > 0)
     {
-        logInfo(VideoTest, "Command Pub Matched ");
+        EPROSIMA_LOG_INFO(VideoTest, "Command Pub Matched ");
         std::cout << "Command Pub Matched " << std::endl;
         ++mp_up->disc_count_;
     }
@@ -272,12 +340,14 @@ void VideoTestSubscriber::CommandPubListener::onPublicationMatched(Publisher* /*
     mp_up->disc_cond_.notify_one();
 }
 
-void VideoTestSubscriber::CommandSubListener::onSubscriptionMatched(Subscriber* /*sub*/,MatchingInfo& info)
+void VideoTestSubscriber::CommandSubListener::on_subscription_matched(
+        DataReader* /*datareader*/,
+        const SubscriptionMatchedStatus& info)
 {
     std::unique_lock<std::mutex> lock(mp_up->mutex_);
-    if(info.status == MATCHED_MATCHING)
+    if (info.current_count_change > 0)
     {
-        logInfo(VideoTest, "Command Sub Matched ");
+        EPROSIMA_LOG_INFO(VideoTest, "Command Sub Matched ");
         std::cout << "Command Sub Matched " << std::endl;
         ++mp_up->disc_count_;
     }
@@ -292,71 +362,79 @@ void VideoTestSubscriber::CommandSubListener::onSubscriptionMatched(Subscriber* 
     mp_up->disc_cond_.notify_one();
 }
 
-void VideoTestSubscriber::CommandSubListener::onNewDataMessage(Subscriber* subscriber)
+void VideoTestSubscriber::CommandSubListener::on_data_available(
+        DataReader* datareader)
 {
+    SampleInfo info;
     TestCommandType command;
-    if(subscriber->takeNextData(&command,&mp_up->m_sampleinfo))
+    if (RETCODE_OK == datareader->take_next_sample((void*)&command, &info))
     {
-        //cout << "RCOMMAND: "<< command.m_command << endl;
-        if(command.m_command == READY)
+        if (info.valid_data)
         {
-            cout << "Publisher has new test ready..."<<endl;
-            mp_up->mutex_.lock();
-            ++mp_up->comm_count_;
-            mp_up->mutex_.unlock();
-            mp_up->comm_cond_.notify_one();
-        }
-        else if(command.m_command == STOP)
-        {
-            cout << "Publisher has stopped the test" << endl;
-            mp_up->mutex_.lock();
-            ++mp_up->data_count_;
-            mp_up->mutex_.unlock();
-            mp_up->comm_cond_.notify_one();
-            mp_up->data_cond_.notify_one();
-        }
-        else if(command.m_command == STOP_ERROR)
-        {
-            cout << "Publisher has canceled the test" << endl;
-            mp_up->m_status = -1;
-            mp_up->mutex_.lock();
-            ++mp_up->data_count_;
-            mp_up->mutex_.unlock();
-            mp_up->comm_cond_.notify_one();
-            mp_up->data_cond_.notify_one();
-        }
-        else if(command.m_command == DEFAULT)
-        {
-            std::cout << "Something is wrong" << std::endl;
+            if (command.m_command == READY)
+            {
+                cout << "Publisher has new test ready..." << endl;
+                mp_up->mutex_.lock();
+                ++mp_up->comm_count_;
+                mp_up->mutex_.unlock();
+                mp_up->comm_cond_.notify_one();
+            }
+            else if (command.m_command == STOP)
+            {
+                cout << "Publisher has stopped the test" << endl;
+                mp_up->mutex_.lock();
+                ++mp_up->data_count_;
+                mp_up->mutex_.unlock();
+                mp_up->comm_cond_.notify_one();
+                mp_up->data_cond_.notify_one();
+            }
+            else if (command.m_command == STOP_ERROR)
+            {
+                cout << "Publisher has canceled the test" << endl;
+                mp_up->m_status = -1;
+                mp_up->mutex_.lock();
+                ++mp_up->data_count_;
+                mp_up->mutex_.unlock();
+                mp_up->comm_cond_.notify_one();
+                mp_up->data_cond_.notify_one();
+            }
+            else if (command.m_command == DEFAULT)
+            {
+                std::cout << "Something is wrong" << std::endl;
+            }
         }
     }
 }
 
-void VideoTestSubscriber::DataSubListener::onNewDataMessage(Subscriber* subscriber)
+void VideoTestSubscriber::DataSubListener::on_data_available(
+        DataReader* datareader)
 {
     VideoType videoData;
-    eprosima::fastrtps::SampleInfo_t info;
-    subscriber->takeNextData((void*)&videoData, &info);
+    SampleInfo info;
+    datareader->take_next_sample((void*)&videoData, &info);
     {
         mp_up->push_video_packet(videoData);
     }
 }
-
 
 void VideoTestSubscriber::run()
 {
     //WAIT FOR THE DISCOVERY PROCESS FO FINISH:
     //EACH SUBSCRIBER NEEDS 4 Matchings (2 publishers and 2 subscribers)
     std::unique_lock<std::mutex> disc_lock(mutex_);
-    disc_cond_.wait(disc_lock, [&]() { return disc_count_ >= 3; });
+    disc_cond_.wait(disc_lock, [&]()
+            {
+                return disc_count_ >= 3;
+            });
     disc_lock.unlock();
 
-    cout << C_B_MAGENTA << "DISCOVERY COMPLETE "<<C_DEF<<endl;
+    cout << C_B_MAGENTA << "DISCOVERY COMPLETE " << C_DEF << endl;
 
     this->test();
 }
 
-void VideoTestSubscriber::gst_run(VideoTestSubscriber* sub)
+void VideoTestSubscriber::gst_run(
+        VideoTestSubscriber* sub)
 {
     if (!sub)
     {
@@ -390,13 +468,13 @@ bool VideoTestSubscriber::test()
     avgs_.clear();
     TestCommandType command;
     command.m_command = BEGIN;
-    mp_commandpub->write(&command);
+    mp_dw->write(&command);
 
     lock.lock();
     data_cond_.wait(lock, [&]()
-    {
-        return data_count_ > 0;
-    });
+            {
+                return data_count_ > 0;
+            });
     --data_count_;
     lock.unlock();
 
@@ -416,8 +494,12 @@ bool VideoTestSubscriber::test()
     return true;
 }
 
-void VideoTestSubscriber::fps_stats_cb(GstElement* /*source*/, gdouble /*fps*/, gdouble /*droprate*/,
-    gdouble avgfps, VideoTestSubscriber* sub)
+void VideoTestSubscriber::fps_stats_cb(
+        GstElement* /*source*/,
+        gdouble /*fps*/,
+        gdouble /*droprate*/,
+        gdouble avgfps,
+        VideoTestSubscriber* sub)
 {
     std::unique_lock<std::mutex> lock(sub->stats_mutex_);
 
@@ -453,9 +535,9 @@ void VideoTestSubscriber::InitGStreamer()
             g_object_set(appsrc, "do-timestamp", TRUE, NULL);
             g_signal_connect(appsrc, "need-data", G_CALLBACK(start_feed_cb), this);
             g_signal_connect(appsrc, "enough-data", G_CALLBACK(stop_feed_cb), this);
-            GstCaps *caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "I420",
-                "width", G_TYPE_INT, m_videoWidth, "height", G_TYPE_INT, m_videoHeight,
-                "framerate", GST_TYPE_FRACTION, m_videoFrameRate, 1, NULL);
+            GstCaps* caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "I420",
+                            "width", G_TYPE_INT, m_videoWidth, "height", G_TYPE_INT, m_videoHeight,
+                            "framerate", GST_TYPE_FRACTION, m_videoFrameRate, 1, NULL);
             gst_app_src_set_caps(GST_APP_SRC(appsrc), caps);
             gst_caps_unref(caps);
 
@@ -492,7 +574,10 @@ void VideoTestSubscriber::InitGStreamer()
     }
 }
 
-void VideoTestSubscriber::start_feed_cb(GstElement* /*source*/, guint /*size*/, VideoTestSubscriber* sub)
+void VideoTestSubscriber::start_feed_cb(
+        GstElement* /*source*/,
+        guint /*size*/,
+        VideoTestSubscriber* sub)
 {
     if (sub->source_id_ == 0)
     {
@@ -500,7 +585,9 @@ void VideoTestSubscriber::start_feed_cb(GstElement* /*source*/, guint /*size*/, 
     }
 }
 
-void VideoTestSubscriber::stop_feed_cb(GstElement* /*source*/, VideoTestSubscriber* sub)
+void VideoTestSubscriber::stop_feed_cb(
+        GstElement* /*source*/,
+        VideoTestSubscriber* sub)
 {
     if (sub->source_id_ != 0)
     {
@@ -510,17 +597,16 @@ void VideoTestSubscriber::stop_feed_cb(GstElement* /*source*/, VideoTestSubscrib
 }
 
 #define WAIT_AFTER_LAST_FEED_MS 2000
-gboolean VideoTestSubscriber::push_data_cb(VideoTestSubscriber* sub)
+gboolean VideoTestSubscriber::push_data_cb(
+        VideoTestSubscriber* sub)
 {
     std::unique_lock<std::mutex> lock(sub->gst_mutex_);
     if (sub->m_bRunning)
     {
-        GstBuffer *buffer;
+        GstBuffer* buffer;
         GstFlowReturn ret;
         GstMapInfo map;
-        //gint16 *raw;
         gint num_samples = 0;
-        //gint size = 0;
 
         const VideoType& vpacket = sub->pop_video_packet();
 
@@ -574,7 +660,10 @@ void VideoTestSubscriber::stop()
     gst_element_set_state(pipeline, GST_STATE_NULL);
 }
 
-void VideoTestSubscriber::message_cb(GstBus* /*bus*/, GstMessage* message, gpointer /*user_data*/)
+void VideoTestSubscriber::message_cb(
+        GstBus* /*bus*/,
+        GstMessage* message,
+        gpointer /*user_data*/)
 {
     GError* err = nullptr;
     gchar* debug_info = nullptr;
@@ -584,7 +673,8 @@ void VideoTestSubscriber::message_cb(GstBus* /*bus*/, GstMessage* message, gpoin
         {
             gst_message_parse_error(message, &err, &debug_info);
 
-            printf("# GST INTERNAL # Error received from element: %s; message: %s\n", GST_OBJECT_NAME(message->src), err->message);
+            printf("# GST INTERNAL # Error received from element: %s; message: %s\n", GST_OBJECT_NAME(
+                        message->src), err->message);
             printf("# GST INTERNAL # Debugging information: %s\n", debug_info ? debug_info : "none");
 
             g_clear_error(&err);
@@ -604,7 +694,8 @@ void VideoTestSubscriber::message_cb(GstBus* /*bus*/, GstMessage* message, gpoin
         {
             gst_message_parse_warning(message, &err, &debug_info);
 
-            printf("# GST INTERNAL # Warning received from element: %s; message: %s\n", GST_OBJECT_NAME(message->src), err->message);
+            printf("# GST INTERNAL # Warning received from element: %s; message: %s\n", GST_OBJECT_NAME(
+                        message->src), err->message);
             printf("# GST INTERNAL # Debugging information: %s\n", debug_info ? debug_info : "none");
 
             g_clear_error(&err);
@@ -622,7 +713,8 @@ void VideoTestSubscriber::message_cb(GstBus* /*bus*/, GstMessage* message, gpoin
         {
             gst_message_parse_info(message, &err, &debug_info);
 
-            printf("# GST INTERNAL # Info received from element: %s; message: %s\n", GST_OBJECT_NAME(message->src), err->message);
+            printf("# GST INTERNAL # Info received from element: %s; message: %s\n", GST_OBJECT_NAME(
+                        message->src), err->message);
             printf("# GST INTERNAL # Debugging information: %s\n", debug_info ? debug_info : "none");
 
             g_clear_error(&err);
@@ -840,8 +932,8 @@ void VideoTestSubscriber::analyzeTimes()
     }
 }
 
-
-void VideoTestSubscriber::printStat(TimeStats& TS)
+void VideoTestSubscriber::printStat(
+        TimeStats& TS)
 {
     std::ofstream outFile;
     std::ofstream outMeanFile;
@@ -853,27 +945,38 @@ void VideoTestSubscriber::printStat(TimeStats& TS)
         str_reliable = "reliable";
     }
 
-    output_file_csv << "Samples, Avg stdev, Avg Mean, min Avg, Avg 50 %%, Avg 90 %%, Avg 99 %%, \
+    output_file_csv
+        <<
+        "Samples, Avg stdev, Avg Mean, min Avg, Avg 50 %%, Avg 90 %%, Avg 99 %%, \
         Avg 99.99%%, Avg max, Drop stdev, Drop Mean, min Drop, Drop 50 %%, Drop 90 %%, Drop 99 %%, \
-        Drop 99.99%%, Drop max" << std::endl;
+        Drop 99.99%%, Drop max"
+        << std::endl;
 
     output_mean_csv << "Avg Mean" << std::endl;
 
     printf("Statistics for video test \n");
-    printf("    Samples,  Avg stdev,   Avg Mean,    min Avg,    Avg 50%%,    Avg 90%%,    Avg 99%%,   Avg 99.99%%,    Avg max\n");
-    printf("-----------,-----------,-----------,-----------,-----------,-----------,-----------,-------------,-----------\n");
+    printf(
+        "    Samples,  Avg stdev,   Avg Mean,    min Avg,    Avg 50%%,    Avg 90%%,    Avg 99%%,   Avg 99.99%%,    Avg max\n");
+    printf(
+        "-----------,-----------,-----------,-----------,-----------,-----------,-----------,-------------,-----------\n");
     printf("%11u,%11.2f,%11.2f,%11.2f,%11.2f,%11.2f,%11.2f,%13.2f,%11.2f \n\n\n",
-        TS.received, TS.pAvgStdev, TS.pAvgMean, TS.m_minAvg, TS.pAvg50, TS.pAvg90, TS.pAvg99, TS.pAvg9999, TS.m_maxAvg);
+            TS.received, TS.pAvgStdev, TS.pAvgMean, TS.m_minAvg, TS.pAvg50, TS.pAvg90, TS.pAvg99, TS.pAvg9999,
+            TS.m_maxAvg);
 
-    printf("    Samples, FameDrop stdev, FameDrop Mean, min FameDrop,  FameDrop 50%%,  FameDrop 90%%,  FameDrop 99%%, FameDrop 99.99%%,  FameDrop max\n");
-    printf("-----------,---------------,--------------,-------------,--------------,--------------,--------------,----------------,--------------\n");
+    printf(
+        "    Samples, FameDrop stdev, FameDrop Mean, min FameDrop,  FameDrop 50%%,  FameDrop 90%%,  FameDrop 99%%, FameDrop 99.99%%,  FameDrop max\n");
+    printf(
+        "-----------,---------------,--------------,-------------,--------------,--------------,--------------,----------------,--------------\n");
     printf("%11u,%15.2f,%14.2f,%13.2f,%14.2f,%14.2f,%14.2f,%16.2f,%14.2f \n",
-        TS.received, TS.pDropStdev, TS.pDropMean, TS.m_minDrop, TS.pDrop50, TS.pDrop90, TS.pDrop99, TS.pDrop9999, TS.m_maxDrop);
+            TS.received, TS.pDropStdev, TS.pDropMean, TS.m_minDrop, TS.pDrop50, TS.pDrop90, TS.pDrop99, TS.pDrop9999,
+            TS.m_maxDrop);
 
-    output_file_csv << TS.received << "," << TS.pAvgStdev << "," << TS.pAvgMean << "," << TS.m_minAvg << "," <<
-        TS.pAvg50 << "," << TS.pAvg90 << "," << TS.pAvg99 << "," << TS.pAvg9999 << "," << TS.m_maxAvg << "," <<
-        TS.pDropStdev << "," << TS.pDropMean << "," << TS.m_minDrop << "," << TS.pDrop50 << "," << TS.pDrop90 <<
-        "," << TS.pDrop99 << "," << TS.pDrop9999 << "," << TS.m_maxDrop << "," << std::endl;
+    output_file_csv << TS.received << "," << TS.pAvgStdev << "," << TS.pAvgMean << "," << TS.m_minAvg << ","
+                    << TS.pAvg50 << "," << TS.pAvg90 << "," << TS.pAvg99 << "," << TS.pAvg9999 << "," << TS.m_maxAvg
+                    << ","
+                    << TS.pDropStdev << "," << TS.pDropMean << "," << TS.m_minDrop << "," << TS.pDrop50 << ","
+                    << TS.pDrop90
+                    << "," << TS.pDrop99 << "," << TS.pDrop9999 << "," << TS.m_maxDrop << "," << std::endl;
 
     output_mean_csv << TS.pAvgMean << "," << std::endl;
 

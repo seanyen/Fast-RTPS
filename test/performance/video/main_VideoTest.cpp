@@ -12,31 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "VideoTestPublisher.hpp"
-#include "VideoTestSubscriber.hpp"
-
-#include "../optionparser.h"
-
-#include <stdio.h>
-#include <string>
-#include <iostream>
-#include <iomanip>
 #include <bitset>
 #include <cstdint>
-#include <gstreamer-1.0/gst/gst.h>
+#include <cstdio>
+#include <iomanip>
+#include <iostream>
+#include <string>
+#include <thread>
 
+#include <fastdds/dds/domain/DomainParticipantFactory.hpp>
 #include <fastdds/dds/log/Log.hpp>
-#include <fastrtps/Domain.h>
-#include <fastrtps/fastrtps_dll.h>
-#include <fastrtps/xmlparser/XMLProfileManager.h>
+#include <gstreamer-1.0/gst/gst.h>
+#include <optionparser.hpp>
+
+#include "VideoTestPublisher.hpp"
+#include "VideoTestSubscriber.hpp"
 
 #if defined(_MSC_VER)
 #pragma warning (push)
 #pragma warning (disable:4512)
-#endif
+#endif // if defined(_MSC_VER)
 
-using namespace eprosima::fastrtps;
-using namespace eprosima::fastrtps::rtps;
+using namespace eprosima::fastdds;
+using namespace eprosima::fastdds::dds;
 
 using std::cout;
 using std::endl;
@@ -45,19 +43,25 @@ using std::endl;
 #define COPYSTR strcpy_s
 #else
 #define COPYSTR strcpy
-#endif
+#endif // if defined(_WIN32)
 
+namespace option = eprosima::option;
 
-struct Arg: public option::Arg
+struct Arg : public option::Arg
 {
-    static void printError(const char* msg1, const option::Option& opt, const char* msg2)
+    static void printError(
+            const char* msg1,
+            const option::Option& opt,
+            const char* msg2)
     {
         fprintf(stderr, "%s", msg1);
         fwrite(opt.name, opt.namelen, 1, stderr);
         fprintf(stderr, "%s", msg2);
     }
 
-    static option::ArgStatus Unknown(const option::Option& option, bool msg)
+    static option::ArgStatus Unknown(
+            const option::Option& option,
+            bool msg)
     {
         if (msg)
         {
@@ -66,7 +70,9 @@ struct Arg: public option::Arg
         return option::ARG_ILLEGAL;
     }
 
-    static option::ArgStatus Required(const option::Option& option, bool msg)
+    static option::ArgStatus Required(
+            const option::Option& option,
+            bool msg)
     {
         if (option.arg != 0 && option.arg[0] != 0)
         {
@@ -80,7 +86,9 @@ struct Arg: public option::Arg
         return option::ARG_ILLEGAL;
     }
 
-    static option::ArgStatus Numeric(const option::Option& option, bool msg)
+    static option::ArgStatus Numeric(
+            const option::Option& option,
+            bool msg)
     {
         char* endptr = 0;
         if (option.arg != 0 && strtol(option.arg, &endptr, 10))
@@ -98,7 +106,9 @@ struct Arg: public option::Arg
         return option::ARG_ILLEGAL;
     }
 
-    static option::ArgStatus String(const option::Option& option, bool msg)
+    static option::ArgStatus String(
+            const option::Option& option,
+            bool msg)
     {
         if (option.arg != 0)
         {
@@ -110,9 +120,11 @@ struct Arg: public option::Arg
         }
         return option::ARG_ILLEGAL;
     }
+
 };
 
-enum  optionIndex {
+enum  optionIndex
+{
     UNKNOWN_OPT,
     HELP,
     RELIABILITY,
@@ -136,12 +148,16 @@ enum  optionIndex {
 };
 
 const option::Descriptor usage[] = {
-    { UNKNOWN_OPT, 0,"", "",                    Arg::None,      "Usage: VideoTest <publisher|subscriber>\n\nGeneral options:" },
-    { HELP,    0,"h", "help",                   Arg::None,      "  -h \t--help  \tProduce help message." },
-    { RELIABILITY,0,"r","reliability",          Arg::Required,  "  -r <arg>, \t--reliability=<arg>  \tSet reliability (\"reliable\"/\"besteffort\")."},
-    { SAMPLES,0,"s","samples",                  Arg::Numeric,   "  -s <num>, \t--samples=<num>  \tNumber of samples." },
-    { SEED,0,"","seed",                         Arg::Numeric,   "  \t--seed=<num>  \tSeed to calculate domain and topic, to isolate test." },
-    { HOSTNAME,0,"","hostname",                 Arg::None,      "\t--hostname \tAppend hostname to the topic." },
+    { UNKNOWN_OPT, 0, "", "",                    Arg::None,
+      "Usage: VideoTest <publisher|subscriber>\n\nGeneral options:" },
+    { HELP,    0, "h", "help",                   Arg::None,      "  -h \t--help  \tProduce help message." },
+    { RELIABILITY, 0, "r", "reliability",          Arg::Required,
+      "  -r <arg>, \t--reliability=<arg>  \tSet reliability (\"reliable\"/\"besteffort\")."},
+    { SAMPLES, 0, "s", "samples",                  Arg::Numeric,
+      "  -s <num>, \t--samples=<num>  \tNumber of samples." },
+    { SEED, 0, "", "seed",                         Arg::Numeric,
+      "  \t--seed=<num>  \tSeed to calculate domain and topic, to isolate test." },
+    { HOSTNAME, 0, "", "hostname",                 Arg::None,      "\t--hostname \tAppend hostname to the topic." },
     { LARGE_DATA, 0, "l", "large",              Arg::None,      "  -l \t--large\tTest large data." },
     { XML_FILE, 0, "", "xml",                   Arg::String,    "\t--xml \tXML Configuration file." },
     { FORCED_DOMAIN, 0, "", "domain",           Arg::Numeric,   "\t--domain \tRTPS Domain." },
@@ -149,16 +165,24 @@ const option::Descriptor usage[] = {
     { HEIGHT, 0, "", "height",                  Arg::Numeric,   "\t--height \tHeight of the video." },
     { FRAMERATE, 0, "", "rate",                 Arg::Numeric,   "\t--rate \tFrame rate of the video." },
 #if HAVE_SECURITY
-    { USE_SECURITY, 0, "", "security",          Arg::Required,  "  --security <arg>  \tEcho mode (\"true\"/\"false\")." },
+    {
+        USE_SECURITY, 0, "", "security",          Arg::Required,
+        "  --security <arg>  \tEcho mode (\"true\"/\"false\")."
+    },
     { CERTS_PATH, 0, "", "certs",               Arg::Required,  "  --certs <arg>  \tPath where located certificates." },
-#endif
-    { UNKNOWN_OPT, 0,"", "",                    Arg::None,      "\nPublisher options:"},
-    { SUBSCRIBERS,0,"n","subscribers",          Arg::Numeric,   "  -n <num>,   \t--subscribers=<arg>  \tNumber of subscribers." },
+#endif // if HAVE_SECURITY
+    {
+        UNKNOWN_OPT, 0, "", "",                    Arg::None,      "\nPublisher options:"
+    },
+    { SUBSCRIBERS, 0, "n", "subscribers",          Arg::Numeric,
+      "  -n <num>,   \t--subscribers=<arg>  \tNumber of subscribers." },
     { TEST_TIME, 0, "", "testtime",             Arg::Numeric,   "\t--testtime \tTest duration time in seconds." },
     { DROP_RATE, 0, "", "droprate",             Arg::Numeric,   "\t--droprate \tSending drop percentage ( 0 - 100 )." },
-    { SEND_SLEEP_TIME, 0, "", "sleeptime",      Arg::Numeric,   "\t--sleeptime \tMaximum sleep time before shipments (milliseconds)." },
-    { EXPORT_CSV,0,"","export_csv",             Arg::None,      "\t--export_csv \tFlag to export a CSV file." },
-    { EXPORT_PREFIX,0,"","export_prefix",       Arg::String,    "\t--export_prefix \tFile prefix for the CSV file." },
+    { SEND_SLEEP_TIME, 0, "", "sleeptime",      Arg::Numeric,
+      "\t--sleeptime \tMaximum sleep time before shipments (milliseconds)." },
+    { EXPORT_CSV, 0, "", "export_csv",             Arg::None,      "\t--export_csv \tFlag to export a CSV file." },
+    { EXPORT_PREFIX, 0, "", "export_prefix",       Arg::String,
+      "\t--export_prefix \tFile prefix for the CSV file." },
     //{ UNKNOWN_OPT, 0,"", "",                    Arg::None,      "\nSubscriber options:"},
 
 
@@ -167,7 +191,9 @@ const option::Descriptor usage[] = {
 
 const int c_n_samples = 10000;
 
-int main(int argc, char** argv)
+int main(
+        int argc,
+        char** argv)
 {
     int columns;
 
@@ -187,7 +213,7 @@ int main(int argc, char** argv)
     }
 #else
     columns = getenv("COLUMNS") ? atoi(getenv("COLUMNS")) : 80;
-#endif
+#endif // if defined(_WIN32)
 
     bool pub_sub = false;
     int sub_number = 1;
@@ -202,7 +228,7 @@ int main(int argc, char** argv)
 #if HAVE_SECURITY
     bool use_security = false;
     std::string certs_path;
-#endif
+#endif // if HAVE_SECURITY
     bool reliable = false;
     uint32_t seed = 80;
     bool hostname = false;
@@ -364,7 +390,7 @@ int main(int argc, char** argv)
             case CERTS_PATH:
                 certs_path = opt.arg;
                 break;
-#endif
+#endif // if HAVE_SECURITY
 
             case UNKNOWN_OPT:
                 option::printUsage(fwrite, stdout, usage, columns);
@@ -373,8 +399,8 @@ int main(int argc, char** argv)
         }
     }
 
-    PropertyPolicy pub_part_property_policy, sub_part_property_policy,
-        pub_property_policy, sub_property_policy;
+    eprosima::fastdds::rtps::PropertyPolicy pub_part_property_policy, sub_part_property_policy,
+            pub_property_policy, sub_property_policy;
 
 #if HAVE_SECURITY
     if (use_security)
@@ -384,41 +410,68 @@ int main(int argc, char** argv)
             option::printUsage(fwrite, stdout, usage, columns);
             return -1;
         }
+        // Subscriber
+        // Auth
+        sub_part_property_policy.properties().emplace_back(eprosima::fastdds::rtps::Property("dds.sec.auth.plugin",
+                "builtin.PKI-DH"));
+        sub_part_property_policy.properties().emplace_back(eprosima::fastdds::rtps::Property(
+                    "dds.sec.auth.builtin.PKI-DH.identity_ca",
+                    "file://" + certs_path + "/maincacert.pem"));
+        sub_part_property_policy.properties().emplace_back(eprosima::fastdds::rtps::Property(
+                    "dds.sec.auth.builtin.PKI-DH.identity_certificate",
+                    "file://" + certs_path + "/mainsubcert.pem"));
+        sub_part_property_policy.properties().emplace_back(eprosima::fastdds::rtps::Property(
+                    "dds.sec.auth.builtin.PKI-DH.private_key",
+                    "file://" + certs_path + "/mainsubkey.pem"));
+        sub_part_property_policy.properties().emplace_back(eprosima::fastdds::rtps::Property("dds.sec.crypto.plugin",
+                "builtin.AES-GCM-GMAC"));
+        // Access
+        sub_part_property_policy.properties().emplace_back(Property("dds.sec.access.plugin",
+                "builtin.Access-Permissions"));
+        sub_part_property_policy.properties().emplace_back(Property(
+                    "dds.sec.access.builtin.Access-Permissions.permissions_ca",
+                    "file://" + certs_path + "/maincacert.pem"));
+        sub_part_property_policy.properties().emplace_back(Property(
+                    "dds.sec.access.builtin.Access-Permissions.governance",
+                    "file://" + certs_path + "/governance_performance_tests.smime"));
+        sub_part_property_policy.properties().emplace_back(Property(
+                    "dds.sec.access.builtin.Access-Permissions.permissions",
+                    "file://" + certs_path + "/permissions_performance_tests.smime"));
 
-        sub_part_property_policy.properties().emplace_back(Property("dds.sec.auth.plugin",
-            "builtin.PKI-DH"));
-        sub_part_property_policy.properties().emplace_back(Property("dds.sec.auth.builtin.PKI-DH.identity_ca",
-            "file://" + certs_path + "/maincacert.pem"));
-        sub_part_property_policy.properties().emplace_back(Property("dds.sec.auth.builtin.PKI-DH.identity_certificate",
-            "file://" + certs_path + "/mainsubcert.pem"));
-        sub_part_property_policy.properties().emplace_back(Property("dds.sec.auth.builtin.PKI-DH.private_key",
-            "file://" + certs_path + "/mainsubkey.pem"));
-        sub_part_property_policy.properties().emplace_back(Property("dds.sec.crypto.plugin",
-            "builtin.AES-GCM-GMAC"));
-        sub_part_property_policy.properties().emplace_back("rtps.participant.rtps_protection_kind", "ENCRYPT");
-        sub_property_policy.properties().emplace_back("rtps.endpoint.submessage_protection_kind", "ENCRYPT");
-        sub_property_policy.properties().emplace_back("rtps.endpoint.payload_protection_kind", "ENCRYPT");
-
-        pub_part_property_policy.properties().emplace_back(Property("dds.sec.auth.plugin",
-            "builtin.PKI-DH"));
-        pub_part_property_policy.properties().emplace_back(Property("dds.sec.auth.builtin.PKI-DH.identity_ca",
-            "file://" + certs_path + "/maincacert.pem"));
-        pub_part_property_policy.properties().emplace_back(Property("dds.sec.auth.builtin.PKI-DH.identity_certificate",
-            "file://" + certs_path + "/mainpubcert.pem"));
-        pub_part_property_policy.properties().emplace_back(Property("dds.sec.auth.builtin.PKI-DH.private_key",
-            "file://" + certs_path + "/mainpubkey.pem"));
-        pub_part_property_policy.properties().emplace_back(Property("dds.sec.crypto.plugin",
-            "builtin.AES-GCM-GMAC"));
-        pub_part_property_policy.properties().emplace_back("rtps.participant.rtps_protection_kind", "ENCRYPT");
-        pub_property_policy.properties().emplace_back("rtps.endpoint.submessage_protection_kind", "ENCRYPT");
-        pub_property_policy.properties().emplace_back("rtps.endpoint.payload_protection_kind", "ENCRYPT");
+        // Publisher
+        // Auth
+        pub_part_property_policy.properties().emplace_back(eprosima::fastdds::rtps::Property("dds.sec.auth.plugin",
+                "builtin.PKI-DH"));
+        pub_part_property_policy.properties().emplace_back(eprosima::fastdds::rtps::Property(
+                    "dds.sec.auth.builtin.PKI-DH.identity_ca",
+                    "file://" + certs_path + "/maincacert.pem"));
+        pub_part_property_policy.properties().emplace_back(eprosima::fastdds::rtps::Property(
+                    "dds.sec.auth.builtin.PKI-DH.identity_certificate",
+                    "file://" + certs_path + "/mainpubcert.pem"));
+        pub_part_property_policy.properties().emplace_back(eprosima::fastdds::rtps::Property(
+                    "dds.sec.auth.builtin.PKI-DH.private_key",
+                    "file://" + certs_path + "/mainpubkey.pem"));
+        pub_part_property_policy.properties().emplace_back(eprosima::fastdds::rtps::Property("dds.sec.crypto.plugin",
+                "builtin.AES-GCM-GMAC"));
+        // Access
+        pub_part_property_policy.properties().emplace_back(Property("dds.sec.access.plugin",
+                "builtin.Access-Permissions"));
+        pub_part_property_policy.properties().emplace_back(Property(
+                    "dds.sec.access.builtin.Access-Permissions.permissions_ca",
+                    "file://" + certs_path + "/maincacert.pem"));
+        pub_part_property_policy.properties().emplace_back(Property(
+                    "dds.sec.access.builtin.Access-Permissions.governance",
+                    "file://" + certs_path + "/governance_performance_tests.smime"));
+        pub_part_property_policy.properties().emplace_back(Property(
+                    "dds.sec.access.builtin.Access-Permissions.permissions",
+                    "file://" + certs_path + "/permissions_performance_tests.smime"));
     }
-#endif
+#endif // if HAVE_SECURITY
 
     // Load an XML file with predefined profiles for publisher and subscriber
     if (sXMLConfigFile.length() > 0)
     {
-        xmlparser::XMLProfileManager::loadXMLFile(sXMLConfigFile);
+        DomainParticipantFactory::get_instance()->load_XML_profiles_file(sXMLConfigFile);
     }
 
     int num_args = 0;
@@ -429,14 +482,16 @@ int main(int argc, char** argv)
         cout << "Performing video test" << endl;
         VideoTestPublisher pub;
         pub.init(sub_number, n_samples, reliable, seed, hostname, pub_part_property_policy,
-            pub_property_policy, large_data, sXMLConfigFile, test_time, drop_rate, max_sleep_time, forced_domain, video_width, video_height, frame_rate);
+                pub_property_policy, large_data, sXMLConfigFile, test_time, drop_rate, max_sleep_time, forced_domain,
+                video_width, video_height, frame_rate);
         pub.run();
     }
     else
     {
         VideoTestSubscriber sub;
         sub.init(n_samples, reliable, seed, hostname, sub_part_property_policy, sub_property_policy,
-            large_data, sXMLConfigFile, export_csv, export_prefix, forced_domain, video_width, video_height, frame_rate);
+                large_data, sXMLConfigFile, export_csv, export_prefix, forced_domain, video_width, video_height,
+                frame_rate);
         sub.run();
     }
 
@@ -449,4 +504,4 @@ int main(int argc, char** argv)
 
 #if defined(_MSC_VER)
 #pragma warning (pop)
-#endif
+#endif // if defined(_MSC_VER)

@@ -60,17 +60,20 @@ std::list<FixedSized> default_fixed_sized_data_generator(
 }
 
 std::list<KeyedHelloWorld> default_keyedhelloworld_data_generator(
-        size_t max)
+        size_t max,
+        bool unique_key)
 {
     uint16_t index = 0;
     size_t maximum = max ? max : 10;
     std::list<KeyedHelloWorld> returnedValue(maximum);
 
-    std::generate(returnedValue.begin(), returnedValue.end(), [&index]
+    std::generate(returnedValue.begin(), returnedValue.end(), [&index, unique_key]
             {
                 KeyedHelloWorld hello;
                 hello.index(index);
-                hello.key(index % 2 + 1);
+                hello.key(unique_key
+                        ? (index + 1)
+                        : (index % 2 + 1));
                 std::stringstream ss;
                 ss << "HelloWorld " << index;
                 hello.message(ss.str());
@@ -81,16 +84,45 @@ std::list<KeyedHelloWorld> default_keyedhelloworld_data_generator(
     return returnedValue;
 }
 
-std::list<String> default_large_string_data_generator(
+std::list<KeyedHelloWorld> default_keyedhelloworld_per_participant_data_generator(
+        size_t participants,
+        size_t max)
+{
+    uint16_t participant_key = 0;
+    uint16_t index = 0;
+    size_t maximum = max ? max : 10;
+    std::list<KeyedHelloWorld> returnedValue(maximum * participants);
+
+    std::generate(returnedValue.begin(), returnedValue.end(), [&index, &participant_key, &maximum]
+            {
+                KeyedHelloWorld hello;
+                hello.index(index);
+                hello.key(participant_key);
+                std::stringstream ss;
+                ss << "HelloWorld " << index;
+                hello.message(ss.str());
+                ++index;
+                if (index == maximum)
+                {
+                    index = 0;
+                    ++participant_key;
+                }
+                return hello;
+            });
+
+    return returnedValue;
+}
+
+std::list<StringTest> default_large_string_data_generator(
         size_t max)
 {
     uint16_t index = 1;
     size_t maximum = max ? max : 10;
-    std::list<String> returnedValue(maximum);
+    std::list<StringTest> returnedValue(maximum);
 
     std::generate(returnedValue.begin(), returnedValue.end(), [&index]
             {
-                String str;
+                StringTest str;
                 std::stringstream ss;
                 ss << std::string(998, 'a') << std::setw(2) << std::setfill('0') << index;
                 str.message(ss.str());
@@ -222,6 +254,30 @@ std::list<Data1mb> default_data96kb_data300kb_data_generator(
     return returnedValue;
 }
 
+const size_t data100kb_length = 102400;
+std::list<Data100kb> default_data100kb_data_generator(
+        size_t max)
+{
+    unsigned char index = 1;
+    size_t maximum = max ? max : 10;
+    std::list<Data100kb> returnedValue(maximum);
+
+    std::generate(returnedValue.begin(), returnedValue.end(), [&index]
+            {
+                Data100kb data;
+                data.data().resize(data100kb_length);
+                data.data()[0] = index;
+                for (size_t i = 1; i < data100kb_length; ++i)
+                {
+                    data.data()[i] = static_cast<unsigned char>(i + data.data()[0]);
+                }
+                ++index;
+                return data;
+            });
+
+    return returnedValue;
+}
+
 std::list<KeyedData1mb> default_keyeddata300kb_data_generator(
         size_t max)
 {
@@ -241,6 +297,27 @@ std::list<KeyedData1mb> default_keyeddata300kb_data_generator(
                 }
                 ++index;
                 return data;
+            });
+
+    return returnedValue;
+}
+
+std::list<UnboundedHelloWorld> default_unbounded_helloworld_data_generator(
+        size_t max)
+{
+    uint16_t index = 1;
+    size_t maximum = max ? max : 10;
+    std::list<UnboundedHelloWorld> returnedValue(maximum);
+
+    std::generate(returnedValue.begin(), returnedValue.end(), [&index]
+            {
+                UnboundedHelloWorld hello;
+                hello.index(index);
+                std::stringstream ss;
+                ss << "HelloWorld " << index;
+                hello.message(ss.str());
+                ++index;
+                return hello;
             });
 
     return returnedValue;

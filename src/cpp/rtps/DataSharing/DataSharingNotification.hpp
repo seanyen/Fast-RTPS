@@ -23,7 +23,7 @@
 #include <rtps/history/PoolConfig.h>
 #include <utils/shared_memory/SharedMemSegment.hpp>
 #include <utils/shared_memory/SharedDir.hpp>
-#include <fastdds/rtps/common/Guid.h>
+#include <fastdds/rtps/common/Guid.hpp>
 
 #include <memory>
 #include <vector>
@@ -31,7 +31,7 @@
 #include <atomic>
 
 namespace eprosima {
-namespace fastrtps {
+namespace fastdds {
 namespace rtps {
 
 class DataSharingNotification
@@ -53,10 +53,17 @@ public:
      */
     inline void notify()
     {
-        std::unique_lock<Segment::mutex> lock(notification_->notification_mutex);
-        notification_->new_data.store(true);
-        lock.unlock();
-        notification_->notification_cv.notify_all();
+        try
+        {
+            std::unique_lock<Segment::mutex> lock(notification_->notification_mutex);
+            notification_->new_data.store(true);
+            lock.unlock();
+            notification_->notification_cv.notify_all();
+        }
+        catch (const boost::interprocess::interprocess_exception& /*e*/)
+        {
+            // Timeout when locking
+        }
     }
 
     /**
@@ -93,7 +100,7 @@ protected:
 
 #pragma warning(push)
 #pragma warning(disable:4324)
-    struct alignas (uint64_t) Notification
+    struct alignas (8) Notification
     {
         //! CV to wait for new notifications
         Segment::condition_variable notification_cv;
@@ -127,32 +134,33 @@ protected:
             const GUID_t& reader_guid,
             const std::string& shared_dir = std::string());
 
-    template <typename T>
+    template<typename T>
     bool create_and_init_shared_segment_notification(
             const GUID_t& reader_guid,
             const std::string& shared_dir)
     {
         segment_id_ = reader_guid;
         segment_name_ = generate_segment_name(shared_dir, reader_guid);
-
-        uint32_t per_allocation_extra_size = T::compute_per_allocation_extra_size(
-            alignof(Notification), DataSharingNotification::domain_name());
-        uint32_t segment_size = static_cast<uint32_t>(sizeof(Notification)) + per_allocation_extra_size;
-
-        //Open the segment
-        T::remove(segment_name_);
         std::unique_ptr<T> local_segment;
+
         try
         {
-            local_segment = std::unique_ptr<T>(
+            uint32_t per_allocation_extra_size = T::compute_per_allocation_extra_size(
+                alignof(Notification), DataSharingNotification::domain_name());
+            uint32_t segment_size = static_cast<uint32_t>(sizeof(Notification)) + per_allocation_extra_size;
+
+            //Open the segment
+            T::remove(segment_name_);
+
+            local_segment.reset(
                 new T(boost::interprocess::create_only,
                 segment_name_,
                 segment_size + T::EXTRA_SEGMENT_SIZE));
         }
         catch (const std::exception& e)
         {
-            logError(HISTORY_DATASHARING_LISTENER, "Failed to create segment " << segment_name_
-                                                                               << ": " << e.what());
+            EPROSIMA_LOG_ERROR(HISTORY_DATASHARING_LISTENER, "Failed to create segment " << segment_name_
+                                                                                         << ": " << e.what());
             return false;
         }
 
@@ -166,8 +174,8 @@ protected:
         {
             T::remove(segment_name_);
 
-            logError(HISTORY_DATASHARING_LISTENER, "Failed to create listener queue " << segment_name_
-                                                                                      << ": " << e.what());
+            EPROSIMA_LOG_ERROR(HISTORY_DATASHARING_LISTENER, "Failed to create listener queue " << segment_name_
+                                                                                                << ": " << e.what());
             return false;
         }
 
@@ -176,7 +184,7 @@ protected:
         return true;
     }
 
-    template <typename T>
+    template<typename T>
     bool open_and_init_shared_segment_notification(
             const GUID_t& reader_guid,
             const std::string& shared_dir)
@@ -194,8 +202,8 @@ protected:
         }
         catch (const std::exception& e)
         {
-            logError(HISTORY_DATASHARING_LISTENER, "Failed to open segment " << segment_name_
-                                                                             << ": " << e.what());
+            EPROSIMA_LOG_ERROR(HISTORY_DATASHARING_LISTENER, "Failed to open segment " << segment_name_
+                                                                                       << ": " << e.what());
             return false;
         }
 
@@ -206,7 +214,7 @@ protected:
         {
             local_segment.reset();
 
-            logError(HISTORY_DATASHARING_LISTENER, "Failed to open listener queue " << segment_name_);
+            EPROSIMA_LOG_ERROR(HISTORY_DATASHARING_LISTENER, "Failed to open listener queue " << segment_name_);
             return false;
         }
 
@@ -223,7 +231,7 @@ protected:
 };
 
 }  // namespace rtps
-}  // namespace fastrtps
+}  // namespace fastdds
 }  // namespace eprosima
 
 #endif  // RTPS_DATASHARING_DATASHARINGNOTIFICATION_HPP

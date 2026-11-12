@@ -20,7 +20,7 @@
 #ifndef _FASTDDS_RTPS_DISCOVERY_DATA_FILTER_H_
 #define _FASTDDS_RTPS_DISCOVERY_DATA_FILTER_H_
 
-#include <fastdds/rtps/writer/IReaderDataFilter.hpp>
+#include <fastdds/rtps/interfaces/IReaderDataFilter.hpp>
 
 namespace eprosima {
 namespace fastdds {
@@ -39,8 +39,8 @@ class PDPDataFilter
 public:
 
     bool is_relevant(
-            const fastrtps::rtps::CacheChange_t& change,
-            const fastrtps::rtps::GUID_t& reader_guid) const override
+            const fastdds::rtps::CacheChange_t& change,
+            const fastdds::rtps::GUID_t& reader_guid) const override
     {
         return static_cast<const DiscoveryDataBase*>(this)->pdp_is_relevant(change, reader_guid);
     }
@@ -61,8 +61,8 @@ class EDPDataFilter
 public:
 
     bool is_relevant(
-            const fastrtps::rtps::CacheChange_t& change,
-            const fastrtps::rtps::GUID_t& reader_guid) const override
+            const fastdds::rtps::CacheChange_t& change,
+            const fastdds::rtps::GUID_t& reader_guid) const override
     {
         return static_cast<const DiscoveryDataBase*>(this)->edp_publications_is_relevant(change, reader_guid);
     }
@@ -80,8 +80,8 @@ class EDPDataFilter<DiscoveryDataBase, false>
 public:
 
     bool is_relevant(
-            const fastrtps::rtps::CacheChange_t& change,
-            const fastrtps::rtps::GUID_t& reader_guid) const override
+            const fastdds::rtps::CacheChange_t& change,
+            const fastdds::rtps::GUID_t& reader_guid) const override
     {
         return static_cast<const DiscoveryDataBase*>(this)->edp_subscriptions_is_relevant(change, reader_guid);
     }

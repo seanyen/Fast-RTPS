@@ -12,28 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "BlackboxTests.hpp"
+#include <cstdlib>
+#include <string>
+#include <tuple>
+#include <vector>
 
+#include <fastdds/dds/core/policy/ParameterTypes.hpp>
+#include <fastdds/dds/domain/DomainParticipantFactory.hpp>
+#include <fastdds/dds/log/Log.hpp>
+#include <fastdds/LibrarySettings.hpp>
+#include <gtest/gtest.h>
+
+#include "BlackboxTests.hpp"
+#include "mock/BlackboxMockConsumer.h"
 #include "PubSubParticipant.hpp"
 #include "PubSubReader.hpp"
 #include "PubSubWriter.hpp"
-#include "ReqRepAsReliableHelloWorldRequester.hpp"
-#include "ReqRepAsReliableHelloWorldReplier.hpp"
-#include <fastrtps/xmlparser/XMLProfileManager.h>
 
-#include <gtest/gtest.h>
+using namespace eprosima::fastdds;
+using namespace eprosima::fastdds::rtps;
 
-#include <tuple>
-
-using namespace eprosima::fastrtps;
-using namespace eprosima::fastrtps::rtps;
-
+namespace {
 enum communication_type
 {
     TRANSPORT,
     INTRAPROCESS,
     DATASHARING
 };
+}  // namespace
 
 class PubSubBasic : public testing::TestWithParam<std::tuple<communication_type, bool>>
 {
@@ -41,12 +47,13 @@ public:
 
     void SetUp() override
     {
-        LibrarySettingsAttributes library_settings;
+        eprosima::fastdds::LibrarySettings library_settings;
         switch (std::get<0>(GetParam()))
         {
             case INTRAPROCESS:
-                library_settings.intraprocess_delivery = IntraprocessDeliveryType::INTRAPROCESS_FULL;
-                xmlparser::XMLProfileManager::library_settings(library_settings);
+                library_settings.intraprocess_delivery = eprosima::fastdds::IntraprocessDeliveryType::INTRAPROCESS_FULL;
+                eprosima::fastdds::dds::DomainParticipantFactory::get_instance()->set_library_settings(
+                    library_settings);
                 break;
             case DATASHARING:
                 enable_datasharing = true;
@@ -61,12 +68,13 @@ public:
 
     void TearDown() override
     {
-        LibrarySettingsAttributes library_settings;
+        eprosima::fastdds::LibrarySettings library_settings;
         switch (std::get<0>(GetParam()))
         {
             case INTRAPROCESS:
-                library_settings.intraprocess_delivery = IntraprocessDeliveryType::INTRAPROCESS_OFF;
-                xmlparser::XMLProfileManager::library_settings(library_settings);
+                library_settings.intraprocess_delivery = eprosima::fastdds::IntraprocessDeliveryType::INTRAPROCESS_OFF;
+                eprosima::fastdds::dds::DomainParticipantFactory::get_instance()->set_library_settings(
+                    library_settings);
                 break;
             case DATASHARING:
                 enable_datasharing = false;
@@ -81,6 +89,52 @@ public:
 
 };
 
+/**
+ * @brief Test function for EnvFileWarning* tests
+ *
+ * Sets environment variable @c FASTDDS_ENVIRONMENT_FILE to @c env_file_name, and then initializes a DomainParticipant,
+ * using a custom log consumer to check how many logWarnings matching
+ * ".*does not exist. File watching not initialized." are issued, comparing that number with @c expected_logs.
+ * Finally, it resets the log module
+ *
+ * @param env_file_name The value to assign to @c FASTDDS_ENVIRONMENT_FILE
+ * @param expected_logs The number of expected logs (error or warning) matching
+ *                      ".*does not exist. File watching not initialized."
+ */
+void env_file_warning(
+        const char* env_file_name,
+        size_t expected_logs)
+{
+    /* Set environment variable */
+#ifdef _WIN32
+    _putenv_s("FASTDDS_ENVIRONMENT_FILE", env_file_name);
+#else
+    setenv("FASTDDS_ENVIRONMENT_FILE", env_file_name, 1);
+#endif // _WIN32
+
+    using namespace eprosima::fastdds::dds;
+    /* Set up log */
+    BlackboxMockConsumer* helper_consumer = new BlackboxMockConsumer();
+    Log::ClearConsumers();  // Remove default consumers
+    Log::RegisterConsumer(std::unique_ptr<LogConsumer>(helper_consumer)); // Registering a consumer transfer ownership
+    // Filter specific message
+    Log::SetVerbosity(Log::Kind::Warning);
+    Log::SetCategoryFilter(std::regex("RTPS_PARTICIPANT"));
+    Log::SetErrorStringFilter(std::regex(".*does not exist. File watching not initialized."));
+
+    /* Create and enable DomainParticipant */
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    reader.init();
+    EXPECT_TRUE(reader.isInitialized());
+
+    /* Check logs */
+    Log::Flush();
+    EXPECT_EQ(helper_consumer->ConsumedEntries().size(), expected_logs);
+
+    /* Clean-up */
+    Log::Reset();  // This calls to ClearConsumers, which deletes the registered consumer
+}
+
 TEST_P(PubSubBasic, PubSubAsNonReliableHelloworld)
 {
     // Best effort incompatible with best effort
@@ -89,14 +143,14 @@ TEST_P(PubSubBasic, PubSubAsNonReliableHelloworld)
         return;
     }
 
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     reader.init();
 
     ASSERT_TRUE(reader.isInitialized());
 
-    writer.reliability(eprosima::fastrtps::BEST_EFFORT_RELIABILITY_QOS).init();
+    writer.reliability(eprosima::fastdds::dds::BEST_EFFORT_RELIABILITY_QOS).init();
 
     ASSERT_TRUE(writer.isInitialized());
 
@@ -117,16 +171,16 @@ TEST_P(PubSubBasic, PubSubAsNonReliableHelloworld)
 
 TEST_P(PubSubBasic, AsyncPubSubAsNonReliableHelloworld)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     reader.init();
 
     ASSERT_TRUE(reader.isInitialized());
 
     writer.history_depth(100).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            asynchronously(eprosima::fastrtps::ASYNCHRONOUS_PUBLISH_MODE).init();
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            asynchronously(eprosima::fastdds::dds::ASYNCHRONOUS_PUBLISH_MODE).init();
 
     ASSERT_TRUE(writer.isInitialized());
 
@@ -147,11 +201,11 @@ TEST_P(PubSubBasic, AsyncPubSubAsNonReliableHelloworld)
 
 TEST_P(PubSubBasic, PubSubAsReliableHelloworld)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     reader.history_depth(100).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).init();
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).init();
 
     ASSERT_TRUE(reader.isInitialized());
 
@@ -178,16 +232,16 @@ TEST_P(PubSubBasic, PubSubAsReliableHelloworld)
 
 TEST_P(PubSubBasic, AsyncPubSubAsReliableHelloworld)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     reader.history_depth(100).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).init();
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).init();
 
     ASSERT_TRUE(reader.isInitialized());
 
     writer.history_depth(100).
-            asynchronously(eprosima::fastrtps::ASYNCHRONOUS_PUBLISH_MODE).init();
+            asynchronously(eprosima::fastdds::dds::ASYNCHRONOUS_PUBLISH_MODE).init();
 
     ASSERT_TRUE(writer.isInitialized());
 
@@ -208,37 +262,13 @@ TEST_P(PubSubBasic, AsyncPubSubAsReliableHelloworld)
     reader.block_for_all();
 }
 
-TEST_P(PubSubBasic, ReqRepAsReliableHelloworld)
-{
-    ReqRepAsReliableHelloWorldRequester requester;
-    ReqRepAsReliableHelloWorldReplier replier;
-    const uint16_t nmsgs = 10;
-
-    requester.init();
-
-    ASSERT_TRUE(requester.isInitialized());
-
-    replier.init();
-
-    requester.wait_discovery();
-    replier.wait_discovery();
-
-    ASSERT_TRUE(replier.isInitialized());
-
-    for (uint16_t count = 0; count < nmsgs; ++count)
-    {
-        requester.send(count);
-        requester.block(std::chrono::seconds(5));
-    }
-}
-
 TEST_P(PubSubBasic, PubSubAsReliableData64kb)
 {
-    PubSubReader<Data64kbType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<Data64kbType> writer(TEST_TOPIC_NAME);
+    PubSubReader<Data64kbPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<Data64kbPubSubType> writer(TEST_TOPIC_NAME);
 
     reader.history_depth(10).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).init();
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).init();
 
     ASSERT_TRUE(reader.isInitialized());
 
@@ -265,10 +295,10 @@ TEST_P(PubSubBasic, PubSubAsReliableData64kb)
 
 TEST_P(PubSubBasic, PubSubMoreThan256Unacknowledged)
 {
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
-    writer.history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            durability_kind(eprosima::fastrtps::TRANSIENT_LOCAL_DURABILITY_QOS).init();
+    writer.history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            durability_kind(eprosima::fastdds::dds::TRANSIENT_LOCAL_DURABILITY_QOS).init();
 
     ASSERT_TRUE(writer.isInitialized());
 
@@ -278,11 +308,11 @@ TEST_P(PubSubBasic, PubSubMoreThan256Unacknowledged)
     writer.send(data);
     ASSERT_TRUE(data.empty());
 
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
 
-    reader.reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
-            history_kind(eprosima::fastrtps::KEEP_ALL_HISTORY_QOS).
-            durability_kind(eprosima::fastrtps::TRANSIENT_LOCAL_DURABILITY_QOS).init();
+    reader.reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
+            history_kind(eprosima::fastdds::dds::KEEP_ALL_HISTORY_QOS).
+            durability_kind(eprosima::fastdds::dds::TRANSIENT_LOCAL_DURABILITY_QOS).init();
 
     ASSERT_TRUE(reader.isInitialized());
 
@@ -293,11 +323,11 @@ TEST_P(PubSubBasic, PubSubMoreThan256Unacknowledged)
 
 TEST_P(PubSubBasic, PubSubAsReliableHelloworldMulticastDisabled)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     reader.history_depth(100).
-            reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).
+            reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).
             disable_multicast(0).init();
 
     ASSERT_TRUE(reader.isInitialized());
@@ -327,19 +357,19 @@ TEST_P(PubSubBasic, PubSubAsReliableHelloworldMulticastDisabled)
 
 TEST_P(PubSubBasic, ReceivedDynamicDataWithNoSizeLimit)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     writer.history_depth(100)
             .partition("A").partition("B").partition("C")
-            .userData({'a', 'b', 'c', 'd'}).init();
+            .user_data({'a', 'b', 'c', 'd'}).init();
 
 
     ASSERT_TRUE(writer.isInitialized());
 
     reader.history_depth(100)
             .partition("A")
-            .reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).init();
+            .reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).init();
 
     ASSERT_TRUE(reader.isInitialized());
 
@@ -360,12 +390,12 @@ TEST_P(PubSubBasic, ReceivedDynamicDataWithNoSizeLimit)
 
 TEST_P(PubSubBasic, ReceivedDynamicDataWithinSizeLimit)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     writer.history_depth(100)
             .partition("A").partition("B").partition("C")
-            .userData({'a', 'b', 'c', 'd'}).init();
+            .user_data({'a', 'b', 'c', 'd'}).init();
 
 
     ASSERT_TRUE(writer.isInitialized());
@@ -374,7 +404,7 @@ TEST_P(PubSubBasic, ReceivedDynamicDataWithinSizeLimit)
             .partitions_max_size(28)
             .history_depth(100)
             .partition("A")
-            .reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).init();
+            .reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).init();
 
     ASSERT_TRUE(reader.isInitialized());
 
@@ -395,17 +425,17 @@ TEST_P(PubSubBasic, ReceivedDynamicDataWithinSizeLimit)
 
 TEST_P(PubSubBasic, ReceivedUserDataExceedsSizeLimit)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     writer.history_depth(100)
-            .userData({'a', 'b', 'c', 'd', 'e', 'f'}).init();
+            .user_data({'a', 'b', 'c', 'd', 'e', 'f'}).init();
 
     ASSERT_TRUE(writer.isInitialized());
 
     reader.user_data_max_size(4)
             .history_depth(100)
-            .reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).init();
+            .reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).init();
 
     ASSERT_TRUE(reader.isInitialized());
 
@@ -418,8 +448,8 @@ TEST_P(PubSubBasic, ReceivedUserDataExceedsSizeLimit)
 
 TEST_P(PubSubBasic, ReceivedPartitionDataExceedsSizeLimit)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     writer.history_depth(100)
             .partition("A").partition("B").partition("C")
@@ -430,7 +460,7 @@ TEST_P(PubSubBasic, ReceivedPartitionDataExceedsSizeLimit)
     reader.partitions_max_size(20)
             .history_depth(100)
             .partition("A")
-            .reliability(eprosima::fastrtps::RELIABLE_RELIABILITY_QOS).init();
+            .reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).init();
 
     ASSERT_TRUE(reader.isInitialized());
 
@@ -492,7 +522,7 @@ TEST_P(PubSubBasic, ReceivedPropertiesDataWithinSizeLimit)
 
     Locator_t LocatorBuffer;
 
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     LocatorList_t WriterUnicastLocators;
     LocatorBuffer.kind = LOCATOR_KIND_UDPv4;
@@ -504,14 +534,26 @@ TEST_P(PubSubBasic, ReceivedPropertiesDataWithinSizeLimit)
     LocatorBuffer.port = static_cast<uint16_t>(MULTICAST_PORT_RANDOM_NUMBER);
     WriterMulticastLocators.push_back(LocatorBuffer);
 
-    writer.static_discovery("file://PubSubWriter.xml").
-            unicastLocatorList(WriterUnicastLocators).multicastLocatorList(WriterMulticastLocators).
-            setPublisherIDs(1,
-            2).setManualTopicName(std::string("BlackBox_StaticDiscovery_") + TOPIC_RANDOM_NUMBER).init();
+    // Set statistics properties manually to ensure a fixed size of participant properties
+    PropertyPolicy property_policy;
+    property_policy.properties().emplace_back(
+        eprosima::fastdds::dds::parameter_policy_physical_data_host, "test_host");
+    property_policy.properties().emplace_back(
+        eprosima::fastdds::dds::parameter_policy_physical_data_user, "test_user");
+    property_policy.properties().emplace_back(
+        eprosima::fastdds::dds::parameter_policy_physical_data_process, "test_process");
+
+    writer.static_discovery("file://RTPSParticipant_static_disc.xml")
+            .unicastLocatorList(WriterUnicastLocators)
+            .multicast_locator_list(WriterMulticastLocators)
+            .setPublisherIDs(1, 2)
+            .setManualTopicName(std::string("BlackBox_StaticDiscovery_") + TOPIC_RANDOM_NUMBER)
+            .property_policy(property_policy)
+            .init();
 
     ASSERT_TRUE(writer.isInitialized());
 
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
 
     LocatorList_t ReaderUnicastLocators;
     LocatorBuffer.port = static_cast<uint16_t>(R_UNICAST_PORT_RANDOM_NUMBER);
@@ -521,12 +563,31 @@ TEST_P(PubSubBasic, ReceivedPropertiesDataWithinSizeLimit)
     LocatorBuffer.port = static_cast<uint16_t>(MULTICAST_PORT_RANDOM_NUMBER);
     ReaderMulticastLocators.push_back(LocatorBuffer);
 
-    //Expected properties have exactly size 92
-    reader.properties_max_size(92).
-            static_discovery("file://PubSubReader.xml").
-            unicastLocatorList(ReaderUnicastLocators).multicastLocatorList(ReaderMulticastLocators).
-            setSubscriberIDs(3,
-            4).setManualTopicName(std::string("BlackBox_StaticDiscovery_") + TOPIC_RANDOM_NUMBER).init();
+    // The calculation of the exact maximum properties size has been done according to the following table
+    //
+    // | Type  | Value                               | Size | Alignment | Extra | Total |
+    // |-------|-------------------------------------|------|-----------|-------|-------|
+    // | key   | PARTICIPANT_TYPE                    |   17 |         3 |     4 |    24 |
+    // | value | SIMPLE                              |    7 |         1 |     4 |    12 |
+    // | key   | fastdds.physical_data.host          |   27 |         1 |     4 |    32 |
+    // | value | test_host                           |   10 |         2 |     4 |    16 |
+    // | key   | fastdds.physical_data.user          |   27 |         1 |     4 |    32 |
+    // | value | test_user                           |   10 |         2 |     4 |    16 |
+    // | key   | fastdds.physical_data.process       |   30 |         2 |     4 |    36 |
+    // | value | test_process                        |   13 |         3 |     4 |    20 |
+    // | key   | eProsimaEDPStatic_Writer_ALIVE_ID_1 |   36 |         0 |     4 |    40 |
+    // | value | 0.0.2.3                             |    8 |         0 |     4 |    12 |
+    //
+    // Total: 240 Bytes
+
+    reader.properties_max_size(240)
+            .static_discovery("file://RTPSParticipant_static_disc.xml")
+            .unicastLocatorList(ReaderUnicastLocators)
+            .multicast_locator_list(ReaderMulticastLocators)
+            .setSubscriberIDs(3, 4)
+            .setManualTopicName(std::string("BlackBox_StaticDiscovery_") + TOPIC_RANDOM_NUMBER)
+            .property_policy(property_policy)
+            .init();
 
     ASSERT_TRUE(reader.isInitialized());
 
@@ -589,7 +650,7 @@ TEST_P(PubSubBasic, ReceivedPropertiesDataExceedsSizeLimit)
 
     Locator_t LocatorBuffer;
 
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     LocatorList_t WriterUnicastLocators;
     LocatorBuffer.kind = LOCATOR_KIND_UDPv4;
@@ -601,14 +662,14 @@ TEST_P(PubSubBasic, ReceivedPropertiesDataExceedsSizeLimit)
     LocatorBuffer.port = static_cast<uint16_t>(MULTICAST_PORT_RANDOM_NUMBER);
     WriterMulticastLocators.push_back(LocatorBuffer);
 
-    writer.static_discovery("file://PubSubWriter.xml").
-            unicastLocatorList(WriterUnicastLocators).multicastLocatorList(WriterMulticastLocators).
+    writer.static_discovery("file://RTPSParticipant_static_disc.xml").
+            unicastLocatorList(WriterUnicastLocators).multicast_locator_list(WriterMulticastLocators).
             setPublisherIDs(1,
             2).setManualTopicName(std::string("BlackBox_StaticDiscovery_") + TOPIC_RANDOM_NUMBER).init();
 
     ASSERT_TRUE(writer.isInitialized());
 
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
 
     LocatorList_t ReaderUnicastLocators;
     LocatorBuffer.port = static_cast<uint16_t>(R_UNICAST_PORT_RANDOM_NUMBER);
@@ -620,8 +681,8 @@ TEST_P(PubSubBasic, ReceivedPropertiesDataExceedsSizeLimit)
 
     //Expected properties have size 92
     reader.properties_max_size(50)
-            .static_discovery("file://PubSubReader.xml")
-            .unicastLocatorList(ReaderUnicastLocators).multicastLocatorList(ReaderMulticastLocators)
+            .static_discovery("file://RTPSParticipant_static_disc.xml")
+            .unicastLocatorList(ReaderUnicastLocators).multicast_locator_list(ReaderMulticastLocators)
             .setSubscriberIDs(3,
             4).setManualTopicName(std::string("BlackBox_StaticDiscovery_") + TOPIC_RANDOM_NUMBER).init();
 
@@ -637,13 +698,14 @@ TEST_P(PubSubBasic, ReceivedPropertiesDataExceedsSizeLimit)
 
 TEST_P(PubSubBasic, unique_flows_one_writer_two_readers)
 {
-    PubSubParticipant<HelloWorldType> readers(0, 2, 0, 2);
-    PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
+    PubSubParticipant<HelloWorldPubSubType> readers(0, 2, 0, 2);
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
 
     PropertyPolicy properties;
     properties.properties().emplace_back("fastdds.unique_network_flows", "");
 
-    readers.sub_topic_name(TEST_TOPIC_NAME).sub_property_policy(properties).reliability(RELIABLE_RELIABILITY_QOS);
+    readers.sub_topic_name(TEST_TOPIC_NAME).sub_property_policy(properties).reliability(
+        eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS);
 
     ASSERT_TRUE(readers.init_participant());
     ASSERT_TRUE(readers.init_subscriber(0));
@@ -711,15 +773,15 @@ TEST_P(PubSubBasic, BestEffortTwoWritersConsecutives)
         return;
     }
 
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
 
     reader.history_depth(10).init();
     EXPECT_TRUE(reader.isInitialized());
 
     for (int i = 0; i < 2; ++i)
     {
-        PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
-        writer.history_depth(10).reliability(BEST_EFFORT_RELIABILITY_QOS);
+        PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
+        writer.history_depth(10).reliability(eprosima::fastdds::dds::BEST_EFFORT_RELIABILITY_QOS);
         two_consecutive_writers(reader, writer, false);
     }
 }
@@ -727,33 +789,106 @@ TEST_P(PubSubBasic, BestEffortTwoWritersConsecutives)
 
 TEST_P(PubSubBasic, ReliableVolatileTwoWritersConsecutives)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
 
-    reader.history_depth(10).reliability(RELIABLE_RELIABILITY_QOS).init();
+    reader.history_depth(10).reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).init();
     EXPECT_TRUE(reader.isInitialized());
 
     for (int i = 0; i < 2; ++i)
     {
-        PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
-        writer.history_depth(10).durability_kind(VOLATILE_DURABILITY_QOS);
+        PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
+        writer.history_depth(10).durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS);
+        two_consecutive_writers(reader, writer, true);
+    }
+}
+
+TEST_P(PubSubBasic, ReliableVolatileTwoWritersConsecutivesSameGuid)
+{
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
+
+    reader.history_depth(10).reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).init();
+    EXPECT_TRUE(reader.isInitialized());
+
+    auto reader_prefix = reader.participant_guid().guidPrefix;
+    auto writer_prefix = reader_prefix;
+    writer_prefix.value[11] = 0xFF;
+
+    for (int i = 0; i < 2; ++i)
+    {
+        PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
+        writer.history_depth(10).durability_kind(eprosima::fastdds::dds::VOLATILE_DURABILITY_QOS).guid_prefix(
+            writer_prefix);
         two_consecutive_writers(reader, writer, true);
     }
 }
 
 TEST_P(PubSubBasic, ReliableTransientLocalTwoWritersConsecutives)
 {
-    PubSubReader<HelloWorldType> reader(TEST_TOPIC_NAME);
+    PubSubReader<HelloWorldPubSubType> reader(TEST_TOPIC_NAME);
 
-    reader.history_depth(10).reliability(RELIABLE_RELIABILITY_QOS).durability_kind(TRANSIENT_LOCAL_DURABILITY_QOS);
+    reader.history_depth(10).reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS).durability_kind(
+        eprosima::fastdds::dds::TRANSIENT_LOCAL_DURABILITY_QOS);
     reader.init();
     EXPECT_TRUE(reader.isInitialized());
 
     for (int i = 0; i < 2; ++i)
     {
-        PubSubWriter<HelloWorldType> writer(TEST_TOPIC_NAME);
-        writer.history_depth(10).reliability(RELIABLE_RELIABILITY_QOS);
+        PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
+        writer.history_depth(10).reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS);
         two_consecutive_writers(reader, writer, true);
     }
+}
+
+// Regression test for redmine issue #14346
+TEST_P(PubSubBasic, ReliableHelloworldLateJoinersStress)
+{
+    if (enable_datasharing)
+    {
+        GTEST_SKIP() << "Data-sharing needs data reception for acknowledgement";
+    }
+
+    constexpr unsigned int num_iterations = 10;
+
+    PubSubWriter<HelloWorldPubSubType> writer(TEST_TOPIC_NAME);
+    writer.history_depth(10).init();
+    ASSERT_TRUE(writer.isInitialized());
+
+    std::vector<std::unique_ptr<PubSubReader<HelloWorldPubSubType>>> readers;
+
+    for (unsigned int i = 0; i < num_iterations; ++i)
+    {
+        readers.emplace_back(new PubSubReader<HelloWorldPubSubType>(TEST_TOPIC_NAME));
+        const auto& new_reader = readers.back();
+
+        new_reader->reliability(eprosima::fastdds::dds::RELIABLE_RELIABILITY_QOS)
+                .durability_kind(eprosima::fastdds::dds::TRANSIENT_LOCAL_DURABILITY_QOS)
+                .history_depth(10)
+                .init();
+        ASSERT_TRUE(new_reader->isInitialized()) << " on iteration " << i;
+        new_reader->wait_discovery();
+        writer.wait_discovery(i + 1);
+
+        auto data = default_helloworld_data_generator();
+        writer.send(data);
+        EXPECT_TRUE(data.empty()) << " on iteration " << i;
+        ASSERT_TRUE(writer.waitForAllAcked(std::chrono::seconds(5))) << " on iteration " << i;
+    }
+}
+
+/*
+ * Check that setting FASTDDS_ENVIRONMENT_FILE to an unexisting file issues 1 EPROSIMA_LOG_WARNING
+ */
+TEST(PubSubBasic, EnvFileWarningWrongFile)
+{
+    env_file_warning("unexisting_file", 1);
+}
+
+/*
+ * Check that setting FASTDDS_ENVIRONMENT_FILE to an empty string issues 0 EPROSIMA_LOG_WARNING
+ */
+TEST(PubSubBasic, EnvFileWarningEmpty)
+{
+    env_file_warning("", 0);
 }
 
 #ifdef INSTANTIATE_TEST_SUITE_P
